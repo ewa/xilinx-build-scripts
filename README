@@ -1,1 +1,7 @@
-Nothing here yet.
+This is a very rudimentary SCons build script for Verilog code using
+the Xilinx ISE tools.
+
+This software and accompanying documentation are Copyright 2011,
+Carnegie Mellon University.  Redistribution rights are granted
+according to the "FreeBSD license" as described in the accompanying
+file "LICENSE".

@@ -1,0 +1,424 @@
+# Build process for Xilinx FPGA programs.  The main purpose of this is to 
+# automate the generation of images with different connection-specific 
+# parameters for each device
+
+import platform
+import os.path
+import xml.etree.ElementTree
+from xml.etree.ElementTree import parse
+
+#
+# This is following the Makefile examples -- and using the perl
+# scripts -- from XESS Corp
+# (http://www.xess.com/appnotes/makefile.php)
+
+# Allow for different behavior on Windows, Linux, etc.
+# No such difference implemented yet, though.
+project = ARGUMENTS.get('PROJECT','Master.xise')
+plat= ARGUMENTS.get('ARCH',platform.architecture()[0])
+
+#ISE 12.2, Linux, installed in /opt/Xilinx/12.2
+
+XIL_ROOT='/opt/Xilinx/12.2/ISE_DS'
+if plat=='32bit':
+    ARCH_PATH='lin'
+elif plat=='64bit':
+    ARCH_PATH='lin64'
+else:
+    print "Unrecognized platform: " + platform.platform()
+    Exit(1)
+    
+env = Environment(PLATFORM=platform,
+                  ENV={'XILINX_DPS'      :XIL_ROOT + '/ISE',
+                       'LD_LIBRARY_PATH' :'{0}/common/lib/{1}:{0}/ISE/lib/{1}:{0}/ISE/smartmodel/{1}/installed_{1}/lib:{0}/EDK/lib/{1}'.format(XIL_ROOT, ARCH_PATH),
+                       'XILINX_EDK'      :XIL_ROOT + '/EDK',
+                       'PATH'            :'{0}/common/bin/{1}:{0}/PlanAhead/bin:{0}/ISE/bin/{1}:{0}/ISE/sysgen/util:{0}/EDK/bin/{1}:/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin'.format(XIL_ROOT,ARCH_PATH),
+                       'JAVA_HOME'       :'/usr/lib/jvm/java-1.6.0-openjdk/',
+                       'LMC_HOME'        :XIL_ROOT + '/ISE/smartmodel/{1}/installed_{1}',
+                       'XILINX_PLANAHEAD':XIL_ROOT + '/PlanAhead',
+                       'XILINX'          :XIL_ROOT + '/ISE',
+                       'LM_LICENSE_FILE' :'XXX-fill this in'})
+
+
+#Project-specifc  preferences.  These should be discovered in some smarter way
+env['INTSTYLE'] = 'silent'
+
+def get_project_files(filename, filetype=None, minfiles=0):
+
+    """Parse Xilinx .xise file and extract source files having type
+    <filetype>.  No path normalization is done here."""
+    
+    tree = parse(filename)    
+    root = tree.getroot()
+    files = root.find('{http://www.xilinx.com/XMLSchema}files')
+
+
+    # Find chipscope files
+    if filetype is None:
+        matchFun = lambda ft: True
+    else:
+        matchFun = lambda ft: (ft == filetype)
+        
+    matchingFiles = [f.get('{http://www.xilinx.com/XMLSchema}name')
+                     for f in files.findall('{http://www.xilinx.com/XMLSchema}file')
+                     if matchFun(f.attrib['{http://www.xilinx.com/XMLSchema}type'])]
+
+    if len(matchingFiles) < minfiles:
+        print "Required at least {0:d} files, found only {1:d}: {2} ".format(minfiles, len(matchingFiles), matchingFiles)
+        Exit(1)
+
+    return matchingFiles
+
+# Let's do a little configuration first
+def process_project_file (context, pfile):
+
+    """Configuration routine.  Uses the contents of FOO.xise to set
+    some useful properties in the build environment.  Least-obviously,
+    we expect to find exactly one UCF file and exactly one CDC
+    (chipscope) file in the .xise file.  More or fewer will cause
+    confusion.  """
+    
+    if project is None:
+        print "Need to know what project file to use!"
+        Exit(1)
+
+    context.env['PROJECTFILE']=pfile
+    topdir = os.path.normpath(os.getcwd())
+    print "Expanding project file paths relative to PWD="+topdir
+    context.env['TOPDIR']=topdir
+
+    tree = parse(pfile)
+    root = tree.getroot()
+    props = root.find('{http://www.xilinx.com/XMLSchema}properties')
+
+    # Find chipscope files
+    chipscopes = get_project_files(pfile, "FILE_CDC",1)
+    if len(chipscopes) != 1:
+        print "Found != 1 chipscope files: ", chipscopes
+        Exit(1)
+    context.env['CHIPSCOPE_FILE']=os.path.abspath(chipscopes[0])
+    
+    # Find UCF files
+    ucfs = get_project_files(pfile, "FILE_UCF", 1)
+    if len(ucfs) != 1:
+        print "Found != 1 UCF files: ", ucfs
+        Exit(1)
+    context.env['UCF']=os.path.abspath(ucfs[0])
+
+
+    #Find properties
+    prop_dict = {}
+    for p in props.findall('{http://www.xilinx.com/XMLSchema}property'):
+        prop_dict[p.get('{http://www.xilinx.com/XMLSchema}name')]=p.get('{http://www.xilinx.com/XMLSchema}value')
+
+    #Part number
+    device  = prop_dict['Device']
+    package = prop_dict['Package']
+    grade   = prop_dict['Speed Grade']
+    partnum = "{0}-{1}{2}".format(device, package, grade)
+    print "Part number = " + partnum
+    conf.env['PARTNUM']=partnum
+
+    #Working directory
+    wd = prop_dict['Working Directory']
+    conf.env['WORK_DIR'] = wd
+
+    #Names
+    design_top = prop_dict['Implementation Top Instance Path']
+    print "Implementation Top Instance: " +design_top
+    conf.env['FILE_STEM']=design_top.strip('/')
+
+conf = Configure(env)
+process_project_file(conf, project)
+env=conf.Finish()
+Export('env')
+
+
+# Build in working subdirectory
+WORK_DIR=env.subst('$WORK_DIR')
+FILE_STEM=env.subst('$FILE_STEM')
+VariantDir(WORK_DIR, '.', duplicate=0)
+
+
+#
+# Step 0:  Generate the FOO.xst and FOO.prj files which will guide XST.
+#
+
+def build_xst_and_prj (target, source, env):
+
+    """Create Foo.xst file, which contains the full command line for xst, and
+    Foo.prj, which contains a list of files involved"""
+
+    xst_filename = str(target[0])
+    prj_filename = str(target[1])
+
+    coregen_files= get_project_files(str(source[0]),'FILE_COREGEN', 0)
+
+    coregen_dirs = ['"'+os.path.dirname(f)+'"' for f in coregen_files]
+    coregen_dir_fmt = "{"+' '.join(coregen_dirs)+" }"
+
+    cmd_line ="""set -tmpdir \"xst/projnav.tmp\"
+set -xsthdpdir \"xst\"
+run
+-ifn {0}
+-ifmt mixed
+-ofn {1}
+-ofmt NGC
+-p {2}
+-top {3}
+-opt_mode Speed
+-opt_level 1
+-power NO
+-iuc NO
+-keep_hierarchy No
+-netlist_hierarchy As_Optimized
+-rtlview Yes
+-glob_opt AllClockNets
+-read_cores YES
+-sd {4}
+-write_timing_constraints NO
+-cross_clock_analysis NO
+-hierarchy_separator /
+-bus_delimiter <>
+-case Maintain
+-slice_utilization_ratio 100
+-bram_utilization_ratio 100
+-dsp_utilization_ratio 100
+-verilog2001 YES
+-fsm_extract YES -fsm_encoding Auto
+-safe_implementation No
+-fsm_style LUT
+-ram_extract Yes
+-ram_style Auto
+-rom_extract Yes
+-mux_style Auto
+-decoder_extract YES
+-priority_extract Yes
+-shreg_extract YES
+-shift_extract YES
+-xor_collapse YES
+-rom_style Auto
+-auto_bram_packing NO
+-mux_extract Yes
+-resource_sharing YES
+-async_to_sync NO
+-use_dsp48 Auto
+-iobuf YES
+-max_fanout 500
+-bufg 32
+-bufr 16
+-register_duplication YES
+-register_balancing No
+-slice_packing YES
+-optimize_primitives NO
+-use_clock_enable Auto
+-use_sync_set Auto
+-use_sync_reset Auto
+-iob Auto
+-equivalent_register_removal YES
+-slice_utilization_ratio_maxmargin 5
+"""
+    cmd_line=cmd_line.format(os.path.basename(prj_filename), # 0 project file
+                             env.subst('$FILE_STEM'),        # 1 File name root
+                             env.subst('$PARTNUM'),          # 2 Weird device number
+                             env.subst('$FILE_STEM'),        # 3 Top-level module
+                             coregen_dir_fmt,                # 4 source director/ies
+                             )
+    
+    outfile = open(xst_filename,"w")
+    outfile.write(cmd_line)
+    outfile.close()
+
+    verilog_files= get_project_files(str(source[0]),'FILE_VERILOG', 0)
+    
+    outfile = open(prj_filename,"w")
+    for vfile in [os.path.abspath(f) for f in verilog_files]:
+        outfile.write('verilog work "{0}"\n'.format(vfile))
+    outfile.close()
+        
+    return 0
+    
+preconfig=Builder(action=build_xst_and_prj)
+env.Append(BUILDERS={'Preconfig' : preconfig})
+env.Preconfig([os.path.join(WORK_DIR, FILE_STEM + '.xst'),
+               os.path.join(WORK_DIR, FILE_STEM + '.prj')],
+              env.subst('$PROJECTFILE'))
+
+
+#
+# Step 1: First "real" step: .xst script (+source files) -> .ngc, .ngr, log file (.srp)
+#
+
+def generate_xst (source, target, env, for_signature):
+
+    """Produce the command line for XST (not counting the additional
+    command line stored in FOO.xst).  Expect the following sources:
+    [0]=.xise file, [1]=.xst file"""
+
+    xst_filename = os.path.basename(str(source[1]))
+    cmd_line = 'xst -intstyle {0} -ifn {1} -ofn foo.syr'
+    cmd_line = cmd_line.format(env.subst('$INTSTYLE'),
+                               xst_filename)
+                
+    return cmd_line
+
+def source_files_from_xise (target, source, env):
+    files = get_project_files(env.subst('$PROJECTFILE'))
+    return target, source+[os.path.join(env.subst('$WORK_DIR'),
+                                        env.subst('$FILE_STEM') + '.xst'),
+                           os.path.join(env.subst('$WORK_DIR'),
+                                        env.subst('$FILE_STEM') + '.prj')]+files
+
+xst = Builder(generator=generate_xst, emitter=source_files_from_xise,
+              chdir=True, suffix=".ngc", src_suffix=".xst")
+env.Append(BUILDERS={'Xst' : xst})
+
+xst_build = env.Xst(os.path.join(WORK_DIR, FILE_STEM +'.ngc'),
+                    os.path.abspath(env.subst('$PROJECTFILE')))
+#
+# Step 2: Translate
+#
+
+#2.1 Chipscope core inserter
+
+def generate_chipsope_insert (source, target, env, for_signature):
+
+    "Generator for chipscope insert Builder"
+    
+    cmd_line = """inserter -intstyle {0} \
+    -mode insert \
+    -ise_project_dir {1}/{2} \
+    -proj {3} \
+    -intstyle ise \
+    -dd {1}/{2}/_ngo \
+    -uc {4} \
+    -p {5} \
+    {6} \
+    {7}""" #  after uc:  -sd ../../../coregen \
+    cmd_line = cmd_line.format(env.subst('$INTSTYLE'), # 0 
+                               env.subst('$TOPDIR'),   # 1
+                               env.subst('$WORK_DIR'), # 2
+                               env.subst('$CHIPSCOPE_FILE'), # 3
+                               env.subst('$UCF'),            # 4
+                               env.subst('$PARTNUM'),        # 5
+                               os.path.basename(str(source[0])), # 6
+                               os.path.basename(str(target[0]))) # 7
+    return cmd_line
+
+insert = Builder(generator=generate_chipsope_insert, chdir=True,
+                 suffix="_cs.ngc", src_suffix=".ngc")
+
+env.Append(BUILDERS={'Insert': insert})
+do_insert=env.Insert(os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'),
+                     os.path.join(WORK_DIR, FILE_STEM + '.ngc'))
+Depends(do_insert,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
+
+
+#2.2 Regular ngdbuild
+def generate_ngdbuild (source, target, env, for_signature):
+    cmd_line ="ngdbuild -intstyle {1} -dd _ngo -sd {0} -nt timestamp -uc {2} -p {3} {4} {5}"
+    cmd_line = cmd_line.format("../../../coregen",
+                               env.subst('$INTSTYLE'),
+                               env.subst('$UCF'),
+                               env.subst('$PARTNUM'),
+                               os.path.basename(str(source[0])), # ngc file
+                               os.path.basename(str(target[0]))) # ngd file
+    return cmd_line
+
+ngd = Builder(generator=generate_ngdbuild,
+              chdir=True)
+env.Append(BUILDERS={'Ngd' : ngd})
+
+ngd_build=env.Ngd(os.path.join(WORK_DIR, FILE_STEM +'.ngd'),
+                  os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'))
+Depends(ngd_build,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
+
+#
+# Step 3: map
+#
+def generate_map (source, target, env, for_signature):
+    cmd_line="map -intstyle {0} -p {1} -global_opt off -cm area -ir off -pr b -c 100 -o {2} {3} {4}"
+    cmd_line = cmd_line.format(env.subst('$INTSTYLE'),
+                               env.subst('$PARTNUM'),
+                               os.path.basename(str(target[0])), # NCD file
+                               os.path.basename(str(source[0])), # NGD file
+                               os.path.basename(str(target[1]))) # PCF file
+                               
+                               
+    return cmd_line
+    
+map = Builder(generator=generate_map,
+              chdir=True)
+env.Append(BUILDERS={'Map' : map})
+do_map=env.Map([os.path.join(WORK_DIR, FILE_STEM + '_map.ncd'),
+                os.path.join(WORK_DIR, FILE_STEM +'.pcf')],
+               os.path.join(WORK_DIR, FILE_STEM + '.ngd'))
+
+#
+# Step 4: Place and Route
+#
+def generate_par (source, target, env, for_signature):
+    cmd_line = "par -w -intstyle {0} -ol high -t 1 {1} {2} {3}"
+    cmd_line = cmd_line.format(env.subst('$INTSTYLE'),
+                               os.path.basename(str(source[0])),     # in
+                               os.path.basename(str(target[0])),     # out
+                               os.path.basename(str(source[1])))     # constraint  (in)
+    return cmd_line
+    
+par = Builder(generator=generate_par,
+              chdir=True)
+env.Append(BUILDERS={'Par' : par})
+do_par=env.Par(os.path.join(WORK_DIR, FILE_STEM + '.ncd'),
+               [os.path.join(WORK_DIR, FILE_STEM + '_map.ncd'),
+                os.path.join(WORK_DIR, FILE_STEM + '.pcf')])
+               
+#
+# Step 5: Generate Programming File (bitgen)
+#
+def generate_bitgen (source, target, env, for_signature):
+    cmd_line ="""bitgen -intstyle {0} \
+    -w \
+    -g DebugBitstream:No \
+    -g Binary:no \
+    -g CRC:Enable \
+    -g ConfigRate:4 \
+    -g CclkPin:PullUp \
+    -g M0Pin:PullUp \
+    -g M1Pin:PullUp \
+    -g M2Pin:PullUp \
+    -g ProgPin:PullUp \
+    -g DonePin:PullUp \
+    -g InitPin:Pullup \
+    -g CsPin:Pullup \
+    -g DinPin:Pullup \
+    -g BusyPin:Pullup \
+    -g RdWrPin:Pullup \
+    -g PowerdownPin:PullUp \
+    -g HswapenPin:PullUp \
+    -g TckPin:PullUp \
+    -g TdiPin:PullUp \
+    -g TdoPin:PullUp \
+    -g TmsPin:PullUp \
+    -g UnusedPin:PullDown \
+    -g UserID:0xFFFFFFFF \
+    -g DCIUpdateMode:AsRequired \
+    -g StartUpClk:CClk \
+    -g DONE_cycle:4 \
+    -g GTS_cycle:5 \
+    -g GWE_cycle:6 \
+    -g LCK_cycle:NoWait \
+    -g Match_cycle:Auto \
+    -g Security:None \
+    -g DonePipe:No \
+    -g DriveDone:No \
+    -g Encrypt:No \
+    {1}"""
+    cmd_line=cmd_line.format(env.subst('$INTSTYLE'),
+                             os.path.basename(str(source[0])))
+    return cmd_line
+
+bitgen = Builder(generator=generate_bitgen, chdir=True)
+env.Append(BUILDERS={'Bitgen' : bitgen})
+do_bitgen=env.Bitgen(os.path.join(WORK_DIR, FILE_STEM + '.bit'),
+                     os.path.join(WORK_DIR, FILE_STEM + '.ncd'))
+

@@ -7,6 +7,10 @@ import os.path
 import xml.etree.ElementTree
 from xml.etree.ElementTree import parse
 
+
+class XiseMissingFilesError (ValueError):
+    pass
+
 #
 # This is following the Makefile examples -- and using the perl
 # scripts -- from XESS Corp
@@ -19,7 +23,7 @@ plat= ARGUMENTS.get('ARCH',platform.architecture()[0])
 
 #ISE 12.2, Linux, installed in /opt/Xilinx/12.2
 
-XIL_ROOT='/opt/Xilinx/12.2/ISE_DS'
+XIL_ROOT='/opt/Xilinx/13.1/ISE_DS'
 if plat=='32bit':
     ARCH_PATH='lin'
 elif plat=='64bit':
@@ -64,8 +68,8 @@ def get_project_files(filename, filetype=None, minfiles=0):
                      if matchFun(f.attrib['{http://www.xilinx.com/XMLSchema}type'])]
 
     if len(matchingFiles) < minfiles:
-        print "Required at least {0:d} files, found only {1:d}: {2} ".format(minfiles, len(matchingFiles), matchingFiles)
-        Exit(1)
+        msg = "Required at least {0:d} files of type {1}, found only {2:d}: {3} ".format(minfiles, filetype, len(matchingFiles), matchingFiles)
+        raise XiseMissingFilesError(msg)
 
     return matchingFiles
 

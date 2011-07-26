@@ -5,3 +5,7 @@ This software and accompanying documentation are Copyright 2011,
 Carnegie Mellon University.  Redistribution rights are granted
 according to the "FreeBSD license" as described in the accompanying
 file "LICENSE".
+
+Currently, the ISE installlation paths and a large number of the tool
+command-line parameters are hard-coded.  Unless your project exactly matches
+mine, it's pretty likely that you'll need to update these.

@@ -96,11 +96,17 @@ def process_project_file (context, pfile):
     props = root.find('{http://www.xilinx.com/XMLSchema}properties')
 
     # Find chipscope files
-    chipscopes = get_project_files(pfile, "FILE_CDC",1)
-    if len(chipscopes) != 1:
-        print "Found != 1 chipscope files: ", chipscopes
+    chipscopes = get_project_files(pfile, "FILE_CDC",0)
+    if len(chipscopes) > 1:
+        print "Found > 1 chipscope files: ", chipscopes
         Exit(1)
-    context.env['CHIPSCOPE_FILE']=os.path.abspath(chipscopes[0])
+    elif len(chipscopes) < 1:
+        context.env['CHIPSCOPE_FILE']=None
+    else:
+        context.env['CHIPSCOPE_FILE']=os.path.abspath(chipscopes[0])
+        
+        
+        
     
     # Find UCF files
     ucfs = get_project_files(pfile, "FILE_UCF", 1)
@@ -312,10 +318,13 @@ def generate_chipsope_insert (source, target, env, for_signature):
 insert = Builder(generator=generate_chipsope_insert, chdir=True,
                  suffix="_cs.ngc", src_suffix=".ngc")
 
-env.Append(BUILDERS={'Insert': insert})
-do_insert=env.Insert(os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'),
-                     os.path.join(WORK_DIR, FILE_STEM + '.ngc'))
-Depends(do_insert,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
+# If CHIPSCOPE_FILE isn't defined, then the "real" .ngc file does not
+# depend on the _cs.ngc file.
+if env['CHIPSCOPE_FILE'] is not None:
+    env.Append(BUILDERS={'Insert': insert})
+    do_insert=env.Insert(os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'),
+                         os.path.join(WORK_DIR, FILE_STEM + '.ngc'))
+    Depends(do_insert,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
 
 
 #2.2 Regular ngdbuild
@@ -335,7 +344,8 @@ env.Append(BUILDERS={'Ngd' : ngd})
 
 ngd_build=env.Ngd(os.path.join(WORK_DIR, FILE_STEM +'.ngd'),
                   os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'))
-Depends(ngd_build,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
+if env['CHIPSCOPE_FILE'] is not None:
+    Depends(ngd_build,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
 
 #
 # Step 3: map

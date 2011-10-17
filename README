@@ -9,3 +9,10 @@ file "LICENSE".
 Currently, the ISE installlation paths and a large number of the tool
 command-line parameters are hard-coded.  Unless your project exactly matches
 mine, it's pretty likely that you'll need to update these.
+
+The easiest way to use this package is to place all of these files in
+a subdirectory of your site_dir (let's call it "fpga" because
+xilinx-build-scripts is not a valid python module name), and then call
+"import fpga.xilinx" in your SConsctruct file.  Right now, this is
+very dirty, and lots of code will be executed at the import point, not
+just made available to call later.  Caveat emptor

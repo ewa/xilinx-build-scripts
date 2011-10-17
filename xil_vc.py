@@ -91,7 +91,7 @@ def main(argv):
 
     for (f,s) in filestates:
         if (s != FileStatus.EQUAL) or (opts.verbose):
-            print "{0:<5}:\t{1:<60}".format(formatFS(s),f)
+            print ("{0:<5}:\t{1:<60}".format(formatFS(s),f))
 
 if __name__ == '__main__':
     import sys

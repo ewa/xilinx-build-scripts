@@ -16,3 +16,7 @@ xilinx-build-scripts is not a valid python module name), and then call
 "import fpga.xilinx" in your SConsctruct file.  Right now, this is
 very dirty, and lots of code will be executed at the import point, not
 just made available to call later.  Caveat emptor
+
+The contents of the Tools directory should go in your site_tools directory (or
+be symlinked there).
+

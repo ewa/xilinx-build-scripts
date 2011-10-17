@@ -1,1 +1,1 @@
-__all__ = ['xilinx']
+__all__ = ['xilinx', 'modelsim']

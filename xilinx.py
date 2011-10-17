@@ -2,6 +2,8 @@
 # automate the generation of images with different connection-specific 
 # parameters for each device
 
+from SCons.Script import *
+
 import platform
 import os.path
 import xml.etree.ElementTree
@@ -15,7 +17,7 @@ from xil_ise import get_project_files
 
 # Allow for different behavior on Windows, Linux, etc.
 # No such difference implemented yet, though.
-project = ARGUMENTS.get('PROJECT','Master.xise')
+project = ARGUMENTS.get('PROJECT','ChangeMe.xise')
 plat= ARGUMENTS.get('ARCH',platform.architecture()[0])
 
 #ISE 12.2, Linux, installed in /opt/Xilinx/12.2

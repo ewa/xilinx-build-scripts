@@ -18,7 +18,7 @@ env = Environment(ENV = os.environ,
                   MODELSIMDIR=vsimdirs[0],
                   VLIBDIR='work',
                   VLOGFLAGS='+incdir+/home/andersoe/ovl/std_ovl/ +define+OVL_ASSERT_ON',
-                  VSIMFLAGS='-novopt -do "add wave -r /*; run -all" -c -onfinish exit -lib $VLIBDIR')
+                  VSIMFLAGS='-voptargs="+acc" -novopt -do "add wave -r /*; run -all" -c -onfinish exit -lib $VLIBDIR')
 
 # vlog_sources = Glob('*.v') + Glob('*.sv')
 

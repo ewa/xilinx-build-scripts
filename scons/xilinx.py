@@ -250,6 +250,8 @@ run
         seq_no, file_type, file_name = n
         if file_type == 'FILE_VERILOG':
             return [os.path.join(fsroot, file_name)]
+        if file_type == 'FILE_VHDL':
+            return [os.path.join(fsroot, file_name)]
         if file_type == 'FILE_COREGENISE':
             print file_name
             print os.path.dirname(file_name)

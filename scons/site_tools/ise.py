@@ -24,9 +24,13 @@ def generate(env):
         print "Could not find ISE in tool generate phase"
         return
 
-    
-    preconfig=Builder(action=xilinx.build_xst_and_prj)
-    env.Append(BUILDERS={'Preconfig' : preconfig})
+        
+    preconf_xst=Builder(action=xilinx.build_xst)
+    env.Append(BUILDERS={'Preconf_xst' : preconf_xst})
+
+    preconf_prj=Builder(action=xilinx.build_prj,
+                      emitter=xilinx.generate_deps_all_cgise)
+    env.Append(BUILDERS={'Preconf_prj' : preconf_prj})
 
     xst = Builder(generator=xilinx.generate_xst,
                   emitter=xilinx.source_files_from_xise,

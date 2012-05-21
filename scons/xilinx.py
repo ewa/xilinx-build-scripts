@@ -21,7 +21,9 @@ def seq_dedup(seq):
     return [ x for x in seq if x not in seen and not seen_add(x)]
 
 def get_impl_files(project_file):
-    # Get implementation files
+
+    "Extract all files mentioned in XISE project file with an Implementation association"
+    
     tree = parse(project_file)
     root = tree.getroot()
     files = root.find('{http://www.xilinx.com/XMLSchema}files')
@@ -38,6 +40,50 @@ def get_impl_files(project_file):
                 
     impl_files.sort(key=operator.itemgetter(0))
     return impl_files
+
+def expand_node(n, fsroot, term_test, verbose=False):
+
+    """Recursively find files we know what to do with.  Specifically,
+    we recurse on FILE_COREGENISE files, and return a leaf node for
+    files for which term_test(file_type) is true."""
+    
+    seq_no, file_type, file_name = n
+    if term_test(file_type):
+        this_node = [os.path.join(fsroot, file_name)]
+    else:
+        this_node = None 
+    if file_type in ['ROOT_XISE','FILE_COREGENISE']:
+        new_fs_root = os.path.join(fsroot, os.path.dirname(file_name))
+        if verbose:
+            print file_name                
+            print new_fs_root
+        raw = get_impl_files(file_name)
+        #pprint.pprint(raw)
+        sub_files = [f for f in raw if f is not None]
+        expanded =[this_node] + [expand_node(f, new_fs_root, term_test) for f in sub_files]
+        filtered=[n for n in expanded if n is not None]
+        return list(itertools.chain.from_iterable(filtered))
+    else:
+        return this_node
+
+def expand_node_rtl(n, fsroot):
+    def is_rtl(filetype):
+        return filetype in ['FILE_VERILOG', 'FILE_VHDL']
+    return expand_node(n, fsroot, is_rtl)
+
+def expand_node_any(n, fsroot):
+    def no_root(filetype):
+        return filetype != 'ROOT_XISE'
+    return expand_node(n, fsroot, no_root)
+
+def generate_extradeps_from_prj (target, source, env, test):
+    extrafiles = expand_node((0, 'ROOT_XISE', env.subst('$PROJECTFILE')), '.', test)
+    return target, source+extrafiles
+
+def generate_deps_all_cgise (target, source, env):    
+    def test_just_cgise(filetype):
+        return filetype=='FILE_COREGENISE'
+    return generate_extradeps_from_prj(target, source, env, test_just_cgise)
 
 
 #
@@ -161,14 +207,13 @@ VariantDir(WORK_DIR, '.', duplicate=0)
 # Step 0:  Generate the FOO.xst and FOO.prj files which will guide XST.
 #
 
-def build_xst_and_prj (target, source, env):
+def build_xst (target, source, env):
 
     """Create .xst file, which contains the full command line for xst,
     and .prj file, which contains a list of files involved"""
 
     xst_filename = str(target[0])
-    prj_filename = str(target[1])
-
+    prj_filename = os.path.splitext(xst_filename)[0]+'.prj'
     coregen_files= get_project_files(str(source[0]),'FILE_COREGEN', 0)
 
     coregen_dirs = ['"'+os.path.dirname(f)+'"' for f in coregen_files]
@@ -244,32 +289,18 @@ run
     outfile = open(xst_filename,"w")
     outfile.write(cmd_line)
     outfile.close()
+        
+    return 0
 
-    #Recursively find files we know what to do with
-    def expand_node(n, fsroot):
-        seq_no, file_type, file_name = n
-        if file_type == 'FILE_VERILOG':
-            return [os.path.join(fsroot, file_name)]
-        if file_type == 'FILE_VHDL':
-            return [os.path.join(fsroot, file_name)]
-        if file_type == 'FILE_COREGENISE':
-            print file_name
-            print os.path.dirname(file_name)
-            new_fs_root = os.path.join(fsroot, os.path.dirname(file_name))
-            print new_fs_root
-            sub_files = [f for f in get_impl_files(file_name) if f is not None]
-            expanded =[expand_node(f, new_fs_root) for f in sub_files]
-            filtered=[n for n in expanded if n is not None]
-            return list(itertools.chain.from_iterable(filtered))
 
-    # Get implementation files
-    #impl_files = get_impl_files(str(source[0]))
-    #impl_files = [expand_node(f) for f in impl_files]
-    impl_files = expand_node((0, 'FILE_COREGENISE', str(source[0])), '.')
-    pprint.pprint(impl_files)
-    #impl_files=[t[2] for t in impl_files if t[1]=='FILE_VERILOG']
+def build_prj (target, source, env):
+
+    """Create .prj file, which contains a list of files involved"""
+
+    prj_filename = str(target[0])
+
     
-
+    impl_files = expand_node_rtl((0, 'ROOT_XISE', str(source[0])), '.')
     
     outfile = open(prj_filename,"w")
     for vfile in [os.path.abspath(f) for f in impl_files]:
@@ -296,14 +327,17 @@ def generate_xst (source, target, env, for_signature):
     [0]=.xise file, [1]=.xst file"""
 
     xst_filename = os.path.basename(str(source[1]))
-    cmd_line = 'xst -intstyle {0} -ifn {1} -ofn foo.syr'
+    syr_filename = os.path.splitext(xst_filename)[0]+'.syr'
+    cmd_line = 'xst -intstyle {0} -ifn {1} -ofn {2}'
     cmd_line = cmd_line.format(env.subst('$INTSTYLE'),
-                               xst_filename)
+                               xst_filename,
+                               syr_filename)
                 
     return cmd_line
 
 def source_files_from_xise (target, source, env):
-    files = get_project_files(env.subst('$PROJECTFILE'))
+    files = expand_node_any((0, 'ROOT_XISE', str(source[0])), '.')
+    #pprint.pprint(files)
     return target, source+[os.path.join(env.subst('$WORK_DIR'),
                                         env.subst('$FILE_STEM') + '.xst'),
                            os.path.join(env.subst('$WORK_DIR'),

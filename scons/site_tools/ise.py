@@ -38,6 +38,11 @@ def generate(env):
     env.Append(BUILDERS={'Xst' : xst}) 
 
 
+    coregen = Builder(generator=xilinx.generate_coregen,
+                      suffix='.xise',
+                      src_suffix='.xco')
+    env.Append(BUILDERS={'Coregen' : coregen})
+
 
 def exists(env):
     ise_exists = env.Detect(['ise'])

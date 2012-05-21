@@ -153,8 +153,6 @@ def process_project_file (context, pfile):
         context.env['CHIPSCOPE_FILE']=None
     else:
         context.env['CHIPSCOPE_FILE']=os.path.abspath(chipscopes[0])
-        
-        
             
     # Find UCF files
     ucfs = get_project_files(pfile, "FILE_UCF", 1)
@@ -315,7 +313,29 @@ env.Preconfig([os.path.join(WORK_DIR, FILE_STEM + '.xst'),
                os.path.join(WORK_DIR, FILE_STEM + '.prj')],
               env.subst('$PROJECTFILE'))
 
+def identify_coregens(env):
+    prj_filename = env.subst('$PROJECTFILE')
+    def is_xco (filetype):
+        return filetype=='FILE_COREGEN'
+    def is_cgise (filetype):
+        return filetype=='FILE_COREGENISE'    
+    coregen_xcos = expand_node((0, 'ROOT_XISE', prj_filename), '.', is_xco)
+    coregen_xises = expand_node((0, 'ROOT_XISE', prj_filename), '.', is_cgise)
 
+    # Naive -- not always true!
+    xco_of = [(f, os.path.splitext(f)[0]+'.xco') for f in coregen_xises]
+
+    return xco_of
+
+def generate_coregen (source, target, env, for_signature):
+    """ Produce a command-line for coregen"""
+    cg_prj_filename = env.subst('$CG_PROJ')
+    cmd_line = 'coregen -p {0} -b {1} -r -intstyle silent'
+    cmd_line=cmd_line.format(cg_prj_filename, # 0 project file
+                             str(source[0])) # 1 source
+    # Assumed! that target is correct
+    return cmd_line
+    
 #
 # Step 1: First "real" step: .xst script (+source files) -> .ngc, .ngr, log file (.srp)
 #

@@ -27,7 +27,11 @@ def generate(env):
     
     preconfig=Builder(action=xilinx.build_xst_and_prj)
     env.Append(BUILDERS={'Preconfig' : preconfig})
-    
+
+    xst = Builder(generator=xilinx.generate_xst,
+                  emitter=xilinx.source_files_from_xise,
+                  chdir=True, suffix=".ngc", src_suffix=".xst")
+    env.Append(BUILDERS={'Xst' : xst}) 
 
 
 

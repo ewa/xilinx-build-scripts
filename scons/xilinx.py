@@ -5,7 +5,10 @@
 from SCons.Script import *
 
 import platform
+import operator
+import pprint
 import os.path
+import itertools
 import xml.etree.ElementTree
 from xml.etree.ElementTree import parse
 from xil_ise import get_project_files
@@ -16,6 +19,25 @@ def seq_dedup(seq):
     seen = set()
     seen_add = seen.add
     return [ x for x in seq if x not in seen and not seen_add(x)]
+
+def get_impl_files(project_file):
+    # Get implementation files
+    tree = parse(project_file)
+    root = tree.getroot()
+    files = root.find('{http://www.xilinx.com/XMLSchema}files')
+    impl_files = []
+    for f in files.findall('{http://www.xilinx.com/XMLSchema}file'):
+        f_name = f.get('{http://www.xilinx.com/XMLSchema}name')
+        f_type = f.attrib['{http://www.xilinx.com/XMLSchema}type']
+        for a in f.findall('./{http://www.xilinx.com/XMLSchema}association'):
+            a_name = a.get('{http://www.xilinx.com/XMLSchema}name')
+            a_seqid = a.get('{http://www.xilinx.com/XMLSchema}seqID')
+            if a_name == 'Implementation':
+                impl_files.append((int(a_seqid), f_type, f_name))
+                continue
+                
+    impl_files.sort(key=operator.itemgetter(0))
+    return impl_files
 
 
 #
@@ -223,10 +245,32 @@ run
     outfile.write(cmd_line)
     outfile.close()
 
-    verilog_files= get_project_files(str(source[0]),'FILE_VERILOG', 0)
+    #Recursively find files we know what to do with
+    def expand_node(n, fsroot):
+        seq_no, file_type, file_name = n
+        if file_type == 'FILE_VERILOG':
+            return [os.path.join(fsroot, file_name)]
+        if file_type == 'FILE_COREGENISE':
+            print file_name
+            print os.path.dirname(file_name)
+            new_fs_root = os.path.join(fsroot, os.path.dirname(file_name))
+            print new_fs_root
+            sub_files = [f for f in get_impl_files(file_name) if f is not None]
+            expanded =[expand_node(f, new_fs_root) for f in sub_files]
+            filtered=[n for n in expanded if n is not None]
+            return list(itertools.chain.from_iterable(filtered))
+
+    # Get implementation files
+    #impl_files = get_impl_files(str(source[0]))
+    #impl_files = [expand_node(f) for f in impl_files]
+    impl_files = expand_node((0, 'FILE_COREGENISE', str(source[0])), '.')
+    pprint.pprint(impl_files)
+    #impl_files=[t[2] for t in impl_files if t[1]=='FILE_VERILOG']
+    
+
     
     outfile = open(prj_filename,"w")
-    for vfile in [os.path.abspath(f) for f in verilog_files]:
+    for vfile in [os.path.abspath(f) for f in impl_files]:
         outfile.write('verilog work "{0}"\n'.format(vfile))
     outfile.close()
         

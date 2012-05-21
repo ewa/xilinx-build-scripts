@@ -16,6 +16,7 @@ def get_project_files(filename, filetype=None, minfiles=0):
     tree = parse(filename)    
     root = tree.getroot()
     files = root.find('{http://www.xilinx.com/XMLSchema}files')
+    properties = root.find('{http://www.xilinx.com/XMLSchema}properties')
 
 
     # Find chipscope files

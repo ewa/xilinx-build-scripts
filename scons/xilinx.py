@@ -9,6 +9,14 @@ import os.path
 import xml.etree.ElementTree
 from xml.etree.ElementTree import parse
 from xil_ise import get_project_files
+#from xil_ise import get_project_prop
+
+def seq_dedup(seq):
+    "Unique-ifier from http://www.peterbe.com/plog/uniqifiers-benchmark"
+    seen = set()
+    seen_add = seen.add
+    return [ x for x in seq if x not in seen and not seen_add(x)]
+
 
 #
 # This is following the Makefile examples -- and using the perl
@@ -79,8 +87,7 @@ def process_project_file (context, pfile):
         context.env['CHIPSCOPE_FILE']=os.path.abspath(chipscopes[0])
         
         
-        
-    
+            
     # Find UCF files
     ucfs = get_project_files(pfile, "FILE_UCF", 1)
     if len(ucfs) != 1:
@@ -98,7 +105,7 @@ def process_project_file (context, pfile):
     device  = prop_dict['Device']
     package = prop_dict['Package']
     grade   = prop_dict['Speed Grade']
-    partnum = "{0}-{1}{2}".format(device, package, grade)
+    partnum = "{0}{1}-{2}".format(device, grade, package)
     print "Part number = " + partnum
     conf.env['PARTNUM']=partnum
 
@@ -116,6 +123,11 @@ process_project_file(conf, project)
 env=conf.Finish()
 Export('env')
 
+    #Include dirs
+    include_dirs = prop_dict["Verilog Include Directories"]
+    context.env['INCLUDE_DIRS'] = include_dirs
+
+    context.env['gp'] = prop_dict["Generics, Parameters"]
 
 # Build in working subdirectory
 WORK_DIR=env.subst('$WORK_DIR')
@@ -129,8 +141,8 @@ VariantDir(WORK_DIR, '.', duplicate=0)
 
 def build_xst_and_prj (target, source, env):
 
-    """Create Foo.xst file, which contains the full command line for xst, and
-    Foo.prj, which contains a list of files involved"""
+    """Create .xst file, which contains the full command line for xst,
+    and .prj file, which contains a list of files involved"""
 
     xst_filename = str(target[0])
     prj_filename = str(target[1])
@@ -138,6 +150,7 @@ def build_xst_and_prj (target, source, env):
     coregen_files= get_project_files(str(source[0]),'FILE_COREGEN', 0)
 
     coregen_dirs = ['"'+os.path.dirname(f)+'"' for f in coregen_files]
+    coregen_dirs = seq_dedup(coregen_dirs)
     coregen_dir_fmt = "{"+' '.join(coregen_dirs)+" }"
 
     cmd_line ="""set -tmpdir \"xst/projnav.tmp\"
@@ -152,11 +165,11 @@ run
 -opt_mode Speed
 -opt_level 1
 -power NO
--iuc NO
+-iuc YES
 -keep_hierarchy No
 -netlist_hierarchy As_Optimized
 -rtlview Yes
--glob_opt AllClockNets
+-glob_opt Max_Delay
 -read_cores YES
 -sd {4}
 -write_timing_constraints NO
@@ -167,6 +180,10 @@ run
 -slice_utilization_ratio 100
 -bram_utilization_ratio 100
 -dsp_utilization_ratio 100
+-lc Auto
+-reduce_control_sets Auto
+-vlgincdir {{ "{5}" }}
+-generics {{ {6} }}
 -fsm_extract YES -fsm_encoding Auto
 -safe_implementation No
 -fsm_style LUT
@@ -178,9 +195,10 @@ run
 -auto_bram_packing NO
 -resource_sharing YES
 -async_to_sync NO
+-shreg_min_size 2
 -use_dsp48 Auto
 -iobuf YES
--max_fanout 500
+-max_fanout 100000
 -bufg 32
 -register_duplication YES
 -register_balancing No
@@ -197,6 +215,8 @@ run
                              env.subst('$PARTNUM'),          # 2 Weird device number
                              env.subst('$FILE_STEM'),        # 3 Top-level module
                              coregen_dir_fmt,                # 4 source director/ies
+                             env.subst('$INCLUDE_DIRS'),     # 5 include dirs
+                             env.subst('$gp'),               # 6 generics, parameters
                              )
     
     outfile = open(xst_filename,"w")

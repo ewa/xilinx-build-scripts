@@ -17,10 +17,21 @@ def xilinx_defaults(env):
     
 
 def generate(env):
-    print "Yee-haw %s!"%env.Detect(['ise'])
-    return
+    ise_exists = env.Detect(['ise'])
+    if ise_exists is not None:
+        print "Found ISE in tool generate phase"
+    else:
+        print "Could not find ISE in tool generate phase"
+        return
 
     
+    preconfig=Builder(action=xilinx.build_xst_and_prj)
+    env.Append(BUILDERS={'Preconfig' : preconfig})
+    
+
+
+
 def exists(env):
-    return env.Detect(['ise'])
+    ise_exists = env.Detect(['ise'])
+    return ise_exists
 

@@ -61,7 +61,7 @@ def expand_node(n, fsroot, term_test, verbose=False):
             raw = get_impl_files(file_name)
         except IOError, e:
             #  Usually means file is missing?
-            sys.stderr.write(str(e))
+            sys.stderr.write("Unable to expand file -- perhaps it's not there (yet): %s\n" % (str(e)))
             raw = []
         #pprint.pprint(raw)
         sub_files = [f for f in raw if f is not None]
@@ -335,7 +335,7 @@ def identify_coregens(env):
 def generate_coregen (source, target, env, for_signature):
     """ Produce a command-line for coregen"""
     cg_prj_filename = env.subst('$CG_PROJ')
-    cmd_line = 'coregen -p {0} -b {1} -r -intstyle silent'
+    cmd_line = "coregen -p {0} -b {1} -r -intstyle silent; sed -i '/^# Date/ s/.*/# Date: REMOVED/g' {1}"
     cmd_line=cmd_line.format(cg_prj_filename, # 0 project file
                              str(source[0])) # 1 source
     # Assumed! that target is correct

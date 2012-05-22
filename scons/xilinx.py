@@ -57,7 +57,12 @@ def expand_node(n, fsroot, term_test, verbose=False):
         if verbose:
             print file_name                
             print new_fs_root
-        raw = get_impl_files(file_name)
+        try:
+            raw = get_impl_files(file_name)
+        except IOError, e:
+            #  Usually means file is missing?
+            sys.stderr.write(str(e))
+            raw = []
         #pprint.pprint(raw)
         sub_files = [f for f in raw if f is not None]
         expanded =[this_node] + [expand_node(f, new_fs_root, term_test) for f in sub_files]

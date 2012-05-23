@@ -7,6 +7,7 @@ Tool-specific initialization for Xilinx ISE
 import sys
 import platform
 import xilinx
+import scan_ise
 import SCons.Util
 from SCons.Script import *
 
@@ -24,12 +25,21 @@ def generate(env):
         print "Could not find ISE in tool generate phase"
         return
 
-        
-    preconf_xst=Builder(action=xilinx.build_xst)
+    # Set some reasonable variables
+    env.Append(XISESUFFIXES=['.xise'])
+
+    ##
+    ## Make some buiders
+    ##
+
+    preconf_xst=Builder(action=xilinx.build_xst)    
     env.Append(BUILDERS={'Preconf_xst' : preconf_xst})
 
+    ## Forcibly scan for dependencies because any file mentioned in
+    ## the COREGEN .xise files is also part of the project, so those
+    ## need to be up-to-date
     preconf_prj=Builder(action=xilinx.build_prj,
-                      emitter=xilinx.generate_deps_all_cgise)
+                        source_scanner=scan_ise.XiseScannerManual())
     env.Append(BUILDERS={'Preconf_prj' : preconf_prj})
 
     xst = Builder(generator=xilinx.generate_xst,
@@ -42,6 +52,12 @@ def generate(env):
                       suffix='.xise',
                       src_suffix='.xco')
     env.Append(BUILDERS={'Coregen' : coregen})
+
+    # Make some scanners
+    env.Append(SCANNERS=scan_ise.XiseScannerManual())
+    env.Append(SCANNERS=scan_ise.XcoScanner())
+    
+    
 
 
 def exists(env):

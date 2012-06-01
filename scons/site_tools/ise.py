@@ -56,7 +56,12 @@ def generate(env):
     # Make some scanners
     env.Append(SCANNERS=scan_ise.XiseScannerManual())
     env.Append(SCANNERS=scan_ise.XcoScanner())
-    
+
+    get_props = Builder(action='xtclsh $XBUILDSCRIPTS/xprop_extract.tcl $SOURCE $TARGET >/dev/null 2>/dev/null',
+                        suffix='.prop_list',
+                        src_suffix='.xise')
+    env.Append(BUILDERS={'GetProps': get_props})
+
     
 
 

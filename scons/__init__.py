@@ -1,1 +1,1 @@
-__all__ = ['xilinx', 'modelsim','scan_ise']
+__all__ = ['xilinx', 'modelsim','scan_ise','xparseprops']

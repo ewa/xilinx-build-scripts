@@ -95,39 +95,8 @@ def generate_deps_all_cgise (target, source, env):
 # This is following the Makefile examples -- and using the perl
 # scripts -- from XESS Corp
 # (http://www.xess.com/appnotes/makefile.php)
-
-# Allow for different behavior on Windows, Linux, etc.
-# No such difference implemented yet, though.
-project = ARGUMENTS.get('PROJECT','ChangeMe.xise')
-plat= ARGUMENTS.get('ARCH',platform.architecture()[0])
-
-#ISE 12.2, Linux, installed in /opt/Xilinx/12.2
-
-XIL_ROOT='/opt/Xilinx/13.1/ISE_DS'
-if plat=='32bit':
-    ARCH_PATH='lin'
-elif plat=='64bit':
-    ARCH_PATH='lin64'
-else:
-    print "Unrecognized platform: " + platform.platform()
-    Exit(1)
-    
-env = Environment(PLATFORM=platform,
-                  ENV={'XILINX_DPS'      :XIL_ROOT + '/ISE',
-                       'LD_LIBRARY_PATH' :'{0}/common/lib/{1}:{0}/ISE/lib/{1}:{0}/ISE/smartmodel/{1}/installed_{1}/lib:{0}/EDK/lib/{1}'.format(XIL_ROOT, ARCH_PATH),
-                       'XILINX_EDK'      :XIL_ROOT + '/EDK',
-                       'PATH'            :'{0}/common/bin/{1}:{0}/PlanAhead/bin:{0}/ISE/bin/{1}:{0}/ISE/sysgen/util:{0}/EDK/bin/{1}:/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin'.format(XIL_ROOT,ARCH_PATH),
-                       'JAVA_HOME'       :'/usr/lib/jvm/java-1.6.0-openjdk/',
-                       'LMC_HOME'        :XIL_ROOT + '/ISE/smartmodel/{1}/installed_{1}',
-                       'XILINX_PLANAHEAD':XIL_ROOT + '/PlanAhead',
-                       'XILINX'          :XIL_ROOT + '/ISE',
-                       'LM_LICENSE_FILE' :'XXX-fill this in'})
-
-
-#Project-specifc  preferences.  These should be discovered in some smarter way
-env['INTSTYLE'] = 'silent'
-
 # Let's do a little configuration first
+
 def process_project_file (context, pfile):
 
     """Configuration routine.  Uses the contents of FOO.xise to set
@@ -135,10 +104,6 @@ def process_project_file (context, pfile):
     we expect to find exactly one UCF file and exactly one CDC
     (chipscope) file in the .xise file.  More or fewer will cause
     confusion.  """
-    
-    if project is None:
-        print "Need to know what project file to use!"
-        Exit(1)
 
     context.env['PROJECTFILE']=pfile
     topdir = os.path.normpath(os.getcwd())
@@ -178,32 +143,22 @@ def process_project_file (context, pfile):
     grade   = prop_dict['Speed Grade']
     partnum = "{0}{1}-{2}".format(device, grade, package)
     print "Part number = " + partnum
-    conf.env['PARTNUM']=partnum
+    context.env['PARTNUM']=partnum
 
     #Working directory
     wd = prop_dict['Working Directory']
-    conf.env['WORK_DIR'] = wd
+    context.env['WORK_DIR'] = wd
 
     #Names
     design_top = prop_dict['Implementation Top Instance Path']
     print "Implementation Top Instance: " +design_top
-    conf.env['FILE_STEM']=design_top.strip('/')
-
-conf = Configure(env)
-process_project_file(conf, project)
-env=conf.Finish()
-Export('env')
+    context.env['FILE_STEM']=design_top.strip('/')
 
     #Include dirs
     include_dirs = prop_dict["Verilog Include Directories"]
     context.env['INCLUDE_DIRS'] = include_dirs
 
     context.env['gp'] = prop_dict["Generics, Parameters"]
-
-# Build in working subdirectory
-WORK_DIR=env.subst('$WORK_DIR')
-FILE_STEM=env.subst('$FILE_STEM')
-VariantDir(WORK_DIR, '.', duplicate=0)
 
 
 #
@@ -311,12 +266,6 @@ def build_prj (target, source, env):
     outfile.close()
         
     return 0
-    
-preconfig=Builder(action=build_xst_and_prj)
-env.Append(BUILDERS={'Preconfig' : preconfig})
-env.Preconfig([os.path.join(WORK_DIR, FILE_STEM + '.xst'),
-               os.path.join(WORK_DIR, FILE_STEM + '.prj')],
-              env.subst('$PROJECTFILE'))
 
 def identify_coregens(env):
     prj_filename = env.subst('$PROJECTFILE')
@@ -348,10 +297,14 @@ def generate_coregen (source, target, env, for_signature):
 def generate_xst (source, target, env, for_signature):
 
     """Produce the command line for XST (not counting the additional
-    command line stored in FOO.xst).  Expect the following sources:
-    [0]=.xise file, [1]=.xst file"""
+    command line stored in FOO.xst).  Expect the following sources
+    [0]=.xst file"""
 
-    xst_filename = os.path.basename(str(source[1]))
+    sys.stderr.write("generate_xst called (%s,%s,%s)\n"%([str(f) for f in source],[str(f) for f in target],for_signature))
+    #sys.stderr.write(env.subst("FOO = '$FOO'")+"\n")
+    #sys.stderr.flush()
+
+    xst_filename = os.path.basename(str(source[0]))
     syr_filename = os.path.splitext(xst_filename)[0]+'.syr'
     cmd_line = 'xst -intstyle {0} -ifn {1} -ofn {2}'
     cmd_line = cmd_line.format(env.subst('$INTSTYLE'),
@@ -359,6 +312,11 @@ def generate_xst (source, target, env, for_signature):
                                syr_filename)
                 
     return cmd_line
+
+def use_proplist_scanner(node, env, path, arg=None):
+    sys.stderr.write("proplist_scaner\n")
+    return []
+
 
 def source_files_from_xise (target, source, env):
     files = expand_node_any((0, 'ROOT_XISE', str(source[0])), '.')
@@ -368,12 +326,6 @@ def source_files_from_xise (target, source, env):
                            os.path.join(env.subst('$WORK_DIR'),
                                         env.subst('$FILE_STEM') + '.prj')]+files
 
-xst = Builder(generator=generate_xst, emitter=source_files_from_xise,
-              chdir=True, suffix=".ngc", src_suffix=".xst")
-env.Append(BUILDERS={'Xst' : xst})
-
-xst_build = env.Xst(os.path.join(WORK_DIR, FILE_STEM +'.ngc'),
-                    os.path.abspath(env.subst('$PROJECTFILE')))
 #
 # Step 2: Translate
 #
@@ -404,18 +356,6 @@ def generate_chipsope_insert (source, target, env, for_signature):
                                os.path.basename(str(target[0]))) # 7
     return cmd_line
 
-insert = Builder(generator=generate_chipsope_insert, chdir=True,
-                 suffix="_cs.ngc", src_suffix=".ngc")
-
-# If CHIPSCOPE_FILE isn't defined, then the "real" .ngc file does not
-# depend on the _cs.ngc file.
-if env['CHIPSCOPE_FILE'] is not None:
-    env.Append(BUILDERS={'Insert': insert})
-    do_insert=env.Insert(os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'),
-                         os.path.join(WORK_DIR, FILE_STEM + '.ngc'))
-    Depends(do_insert,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
-
-
 #2.2 Regular ngdbuild
 def generate_ngdbuild (source, target, env, for_signature):
     cmd_line ="ngdbuild -intstyle {1} -dd _ngo -sd {0} -nt timestamp -uc {2} -p {3} {4} {5}"
@@ -427,14 +367,6 @@ def generate_ngdbuild (source, target, env, for_signature):
                                os.path.basename(str(target[0]))) # ngd file
     return cmd_line
 
-ngd = Builder(generator=generate_ngdbuild,
-              chdir=True)
-env.Append(BUILDERS={'Ngd' : ngd})
-
-ngd_build=env.Ngd(os.path.join(WORK_DIR, FILE_STEM +'.ngd'),
-                  os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'))
-if env['CHIPSCOPE_FILE'] is not None:
-    Depends(ngd_build,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
 
 #
 # Step 3: map
@@ -450,12 +382,6 @@ def generate_map (source, target, env, for_signature):
                                
     return cmd_line
     
-map = Builder(generator=generate_map,
-              chdir=True)
-env.Append(BUILDERS={'Map' : map})
-do_map=env.Map([os.path.join(WORK_DIR, FILE_STEM + '_map.ncd'),
-                os.path.join(WORK_DIR, FILE_STEM +'.pcf')],
-               os.path.join(WORK_DIR, FILE_STEM + '.ngd'))
 
 #
 # Step 4: Place and Route
@@ -468,12 +394,6 @@ def generate_par (source, target, env, for_signature):
                                os.path.basename(str(source[1])))     # constraint  (in)
     return cmd_line
     
-par = Builder(generator=generate_par,
-              chdir=True)
-env.Append(BUILDERS={'Par' : par})
-do_par=env.Par(os.path.join(WORK_DIR, FILE_STEM + '.ncd'),
-               [os.path.join(WORK_DIR, FILE_STEM + '_map.ncd'),
-                os.path.join(WORK_DIR, FILE_STEM + '.pcf')])
                
 #
 # Step 5: Generate Programming File (bitgen)
@@ -520,8 +440,112 @@ def generate_bitgen (source, target, env, for_signature):
                              os.path.basename(str(source[0])))
     return cmd_line
 
-bitgen = Builder(generator=generate_bitgen, chdir=True)
-env.Append(BUILDERS={'Bitgen' : bitgen})
-do_bitgen=env.Bitgen(os.path.join(WORK_DIR, FILE_STEM + '.bit'),
-                     os.path.join(WORK_DIR, FILE_STEM + '.ncd'))
 
+def do_xilinx(env,project=None,plat=None):
+    # Allow for different behavior on Windows, Linux, etc.
+    # No such difference implemented yet, though.
+    if project is None:
+        project = ARGUMENTS.get('PROJECT','ChangeMe.xise')
+    if plat is None:
+        plat= ARGUMENTS.get('ARCH',platform.architecture()[0])
+
+    #ISE 13.2, Linux, installed in /opt/Xilinx/13.2
+
+    XIL_ROOT='/opt/Xilinx/13.2/ISE_DS'
+    if plat=='32bit':
+        ARCH_PATH='lin'
+    elif plat=='64bit':
+        ARCH_PATH='lin64'
+    else:
+        print "Unrecognized platform: " + platform.platform()
+        Exit(1)
+
+    env['PLATFORM']        = platform
+    env['XILINX_DPS']      = XIL_ROOT + '/ISE'
+    env['LD_LIBRARY_PATH'] = '{0}/common/lib/{1}:{0}/ISE/lib/{1}:{0}/ISE/smartmodel/{1}/installed_{1}/lib:{0}/EDK/lib/{1}'.format(XIL_ROOT, ARCH_PATH)
+    env['XILINX_EDK']      = XIL_ROOT + '/EDK'
+    env['PATH']            = '{0}/common/bin/{1}:{0}/PlanAhead/bin:{0}/ISE/bin/{1}:{0}/ISE/sysgen/util:{0}/EDK/bin/{1}:/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin'.format(XIL_ROOT,ARCH_PATH)
+    env['JAVA_HOME']       = '/usr/lib/jvm/java-1.6.0-openjdk/'
+    env['LMC_HOME']        = XIL_ROOT + '/ISE/smartmodel/{0}/installed_{0}'.format(ARCH_PATH)
+    env['XILINX_PLANAHEAD']= XIL_ROOT + '/PlanAhead'
+    env['XILINX']          = XIL_ROOT + '/ISE'
+    env['LM_LICENSE_FILE'] = 'XXX-fill this in'
+
+    ##Project-specifc  preferences.  These should be discovered in some smarter way
+    env['INTSTYLE'] = 'silent'
+    
+    
+    conf = Configure(env)
+    process_project_file(conf, project)
+    env=conf.Finish()
+    Export('env')
+    
+    
+    # Build in working subdirectory
+    WORK_DIR=env.subst('$WORK_DIR')
+    FILE_STEM=env.subst('$FILE_STEM')
+    VariantDir(WORK_DIR, '.', duplicate=0)
+
+
+    #  Step 0
+    preconfig=Builder(action=build_xst_and_prj)
+    env.Append(BUILDERS={'Preconfig' : preconfig})
+    env.Preconfig([os.path.join(WORK_DIR, FILE_STEM + '.xst'),
+                   os.path.join(WORK_DIR, FILE_STEM + '.prj')],
+                  env.subst('$PROJECTFILE'))
+
+    # Step 1
+    xst = Builder(generator=generate_xst, emitter=source_files_from_xise,
+                  target_scanner=use_proplist_scanner,
+                  chdir=True, suffix=".ngc", src_suffix=".xst")
+    env.Append(BUILDERS={'Xst' : xst})
+    
+    xst_build = env.Xst(os.path.join(WORK_DIR, FILE_STEM +'.ngc'),
+                        os.path.abspath(env.subst('$PROJECTFILE')))
+
+    # Step 2.1
+    insert = Builder(generator=generate_chipsope_insert, chdir=True,
+                     suffix="_cs.ngc", src_suffix=".ngc")
+
+    # If CHIPSCOPE_FILE isn't defined, then the "real" .ngc file does not
+    # depend on the _cs.ngc file.
+    if env['CHIPSCOPE_FILE'] is not None:
+        env.Append(BUILDERS={'Insert': insert})
+        do_insert=env.Insert(os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'),
+                             os.path.join(WORK_DIR, FILE_STEM + '.ngc'))
+        Depends(do_insert,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
+
+    # Step 2.2
+    ngd = Builder(generator=generate_ngdbuild,
+                  chdir=True)
+    env.Append(BUILDERS={'Ngd' : ngd})
+    
+    ngd_build=env.Ngd(os.path.join(WORK_DIR, FILE_STEM +'.ngd'),
+                      os.path.join(WORK_DIR, FILE_STEM + '_cs.ngc'))
+    if env['CHIPSCOPE_FILE'] is not None:
+        Depends(ngd_build,[env.subst('$CHIPSCOPE_FILE'), env.subst('$UCF')])
+
+    # Step 3
+    map = Builder(generator=generate_map,
+                  chdir=True)
+    env.Append(BUILDERS={'Map' : map})
+    do_map=env.Map([os.path.join(WORK_DIR, FILE_STEM + '_map.ncd'),
+                    os.path.join(WORK_DIR, FILE_STEM +'.pcf')],
+                   os.path.join(WORK_DIR, FILE_STEM + '.ngd'))
+    
+    # Step 4
+    par = Builder(generator=generate_par,
+              chdir=True)
+    env.Append(BUILDERS={'Par' : par})
+    do_par=env.Par(os.path.join(WORK_DIR, FILE_STEM + '.ncd'),
+                   [os.path.join(WORK_DIR, FILE_STEM + '_map.ncd'),
+                    os.path.join(WORK_DIR, FILE_STEM + '.pcf')])
+
+    # Step 5
+    bitgen = Builder(generator=generate_bitgen, chdir=True)
+    env.Append(BUILDERS={'Bitgen' : bitgen})
+    do_bitgen=env.Bitgen(os.path.join(WORK_DIR, FILE_STEM + '.bit'),
+                         os.path.join(WORK_DIR, FILE_STEM + '.ncd'))
+
+    
+    return None

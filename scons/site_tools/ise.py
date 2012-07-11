@@ -100,7 +100,7 @@ def generate(env):
     ## Make some buiders
     ##
 
-    preconf_xst=Builder(action=xilinx.build_xst)    
+    preconf_xst=Builder(action=xilinx.build_xst)
     env.Append(BUILDERS={'Preconf_xst' : preconf_xst})
 
     ## Forcibly scan for dependencies because any file mentioned in
@@ -138,6 +138,7 @@ def interp_props(target, source, env):
         Exit(1)
 
 def exists(env):
+    EnsureSConsVersion(1,2,0)
     ise_exists = env.Detect(['ise'])
     return ise_exists
 

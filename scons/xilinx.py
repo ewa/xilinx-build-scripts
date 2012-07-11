@@ -300,7 +300,7 @@ def generate_xst (source, target, env, for_signature):
     command line stored in FOO.xst).  Expect the following sources
     [0]=.xst file"""
 
-    sys.stderr.write("generate_xst called (%s,%s,%s)\n"%([str(f) for f in source],[str(f) for f in target],for_signature))
+    #sys.stderr.write("generate_xst called (%s,%s,%s)\n"%([str(f) for f in source],[str(f) for f in target],for_signature))
     #sys.stderr.write(env.subst("FOO = '$FOO'")+"\n")
     #sys.stderr.flush()
 
@@ -312,11 +312,6 @@ def generate_xst (source, target, env, for_signature):
                                syr_filename)
                 
     return cmd_line
-
-def use_proplist_scanner(node, env, path, arg=None):
-    sys.stderr.write("proplist_scaner\n")
-    return []
-
 
 def source_files_from_xise (target, source, env):
     files = expand_node_any((0, 'ROOT_XISE', str(source[0])), '.')
@@ -496,7 +491,6 @@ def do_xilinx(env,project=None,plat=None):
 
     # Step 1
     xst = Builder(generator=generate_xst, emitter=source_files_from_xise,
-                  target_scanner=use_proplist_scanner,
                   chdir=True, suffix=".ngc", src_suffix=".xst")
     env.Append(BUILDERS={'Xst' : xst})
     

@@ -30,8 +30,7 @@ def xilinx_defaults(env):
 
 def depend_on_proj_props(target, source, env):
     """ Emitter which adds a dependency for the project properties file """
-    env['FOO']='bar'
-    sys.stderr.write("depend_on_proj_props called\n")
+    #sys.stderr.write("depend_on_proj_props called\n")
     #sys.stderr.flush()
 
     return (target, source + [env['XISE_PY_PROPFILE']])
@@ -48,16 +47,22 @@ def announce(words):
     return  doit
 
 def use_proplist_scanner(node, env, path, arg=None):
-    sys.stderr.write("proplist_scanner %s\n" %(str(node)))
-    sys.stderr.write("arg: %s\n" % (str(arg)))
+    sys.stderr.write("Calling proplist_scanner for %s\n" %(str(node)))
+    #sys.stderr.write("arg: %s\n" % (str(arg)))
     try:
         pp = env['PROJFILE_PROPS']
-        sys.stderr.write("PROJFILE_PROPS= %s \n" % (str(pp)))
-        return ['silly_dependency.txt']
+        #sys.stderr.write("PROJFILE_PROPS= %s \n" % (str(pp)))
     except KeyError, e:
-        sys.stderr.write("PROJFILE_PROPS not set (yet).  Must revisit!\n")
+        sys.stderr.write("\tPROJFILE_PROPS not set (yet).  Must revisit!\n")
         return []
-
+    if arg is None:
+        sys.stderr.write("use_proplist_scanner needs an arg!\n")
+        Exit(1)
+    if arg == 'XST':
+        files=xilinx.expand_node_any((0, 'ROOT_XISE', env.subst('$PROJECTFILE')), '..') # How do we know that ".." is the root?  Just made it up!
+        #pprint.pprint(files)
+        return files
+    
 
 def generate(env):
     ise_exists = env.Detect(['ise'])
@@ -72,7 +77,7 @@ def generate(env):
                         src_suffix='.xise')
     env.Append(BUILDERS={'GetProps': get_props})
 
-    foo = Builder(action=[interp_props,"cp $SOURCE $TARGET"],
+    foo = Builder(action=interp_props,
                   suffix=".step1",
                   src_suffix=".prop_list")
     env.Append(BUILDERS={'Foo' : foo})
@@ -128,6 +133,9 @@ def interp_props(target, source, env):
     #sys.stderr.write("interp_props: %s %s %s\n"%([str(f) for f in target], [str(f) for f in source], env))
     prop_dict = xparseprops.process(source[0].get_contents())
     env.Replace(PROJFILE_PROPS=prop_dict)
+    if env.Execute(Copy(target[0], source[0])):
+        #copy failed?
+        Exit(1)
 
 def exists(env):
     ise_exists = env.Detect(['ise'])

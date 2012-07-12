@@ -184,11 +184,10 @@ def build_xst (target, source, env):
     except KeyError, e:
         sys.stderr.write("Error getting synthesis options: %s\n" % (str(e)))
         Exit(1)
-    #pprint.pprint(env['PROJFILE_PROPS'])
     #pprint.pprint(options)
     set_args, run_args = process_xst_opts(options)
-    pprint.pprint(set_args)
-    pprint.pprint(run_args)
+    #pprint.pprint(set_args)
+    #pprint.pprint(run_args)
 
     ## Add some task-specific values:
     run_args = [['-ifn' , os.path.basename(prj_filename)],
@@ -204,74 +203,7 @@ def build_xst (target, source, env):
     cmd_line  = cmd_line + "run\n"
     for ra in run_args:
         cmd_line = cmd_line + ' '.join(ra) + '\n'
-    print cmd_line
-    
-
-#     cmd_line ="""set -tmpdir \"xst/projnav.tmp\"
-# set -xsthdpdir \"xst\"
-# run
-# -ifn {0}
-# -ifmt mixed
-# -ofn {1}
-# -ofmt NGC
-# -p {2}
-# -top {3}
-# -opt_mode Speed
-# -opt_level 1
-# -power NO
-# -iuc YES
-# -keep_hierarchy No
-# -netlist_hierarchy As_Optimized
-# -rtlview Yes
-# -glob_opt Max_Delay
-# -read_cores YES
-# -sd {4}
-# -write_timing_constraints NO
-# -cross_clock_analysis NO
-# -hierarchy_separator /
-# -bus_delimiter <>
-# -case Maintain
-# -slice_utilization_ratio 100
-# -bram_utilization_ratio 100
-# -dsp_utilization_ratio 100
-# -lc Auto
-# -reduce_control_sets Auto
-# -vlgincdir {{ "{5}" }}
-# -generics {{ {6} }}
-# -fsm_extract YES -fsm_encoding Auto
-# -safe_implementation No
-# -fsm_style LUT
-# -ram_extract Yes
-# -ram_style Auto
-# -rom_extract Yes
-# -shreg_extract YES
-# -rom_style Auto
-# -auto_bram_packing NO
-# -resource_sharing YES
-# -async_to_sync NO
-# -shreg_min_size 2
-# -use_dsp48 Auto
-# -iobuf YES
-# -max_fanout 100000
-# -bufg 32
-# -register_duplication YES
-# -register_balancing No
-# -optimize_primitives NO
-# -use_clock_enable Auto
-# -use_sync_set Auto
-# -use_sync_reset Auto
-# -iob Auto
-# -equivalent_register_removal YES
-# -slice_utilization_ratio_maxmargin 5
-# """
-#     cmd_line=cmd_line.format(os.path.basename(prj_filename), # 0 project file
-#                              env.subst('$FILE_STEM'),        # 1 File name root
-#                              env.subst('$PARTNUM'),          # 2 Weird device number
-#                              env.subst('$FILE_STEM'),        # 3 Top-level module
-#                              coregen_dir_fmt,                # 4 source director/ies
-#                              env.subst('$INCLUDE_DIRS'),     # 5 include dirs
-#                              env.subst('$gp'),               # 6 generics, parameters
-#                              )
+    #print cmd_line
     
     outfile = open(xst_filename,"w")
     outfile.write(cmd_line)

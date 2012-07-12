@@ -72,7 +72,7 @@ def generate(env):
         print "Could not find ISE in tool generate phase"
         return
 
-    get_props = Builder(action='xtclsh $XBUILDSCRIPTS/xprop_extract.tcl $SOURCE $TARGET',
+    get_props = Builder(action='xtclsh $XBUILDSCRIPTS/xprop_extract.tcl $SOURCE $TARGET > /dev/null 2>&1',
                         suffix='.prop_list',
                         src_suffix='.xise')
     env.Append(BUILDERS={'GetProps': get_props})

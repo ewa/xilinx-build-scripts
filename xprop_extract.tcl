@@ -6,21 +6,21 @@
 ## http://www.xilinx.com/support/answers/30962.htm
 ## 
 
-proc get_properties {props_name} {
+proc get_properties {props_name verbose} {
     upvar $props_name props
     set props [list]
     set processes [project get_processes]
     set projName [project get name]
-    puts stderr "Reading process properties from $projName"
+    if $verbose { puts stderr "Reading process properties from $projName" } 
     foreach proc_iter $processes {
-	puts stderr "Process \"$proc_iter\" "
+	if $verbose { puts stderr "Process \"$proc_iter\" " }
 	set properties [project properties -process $proc_iter]
 	set prop_list [list]
-	puts stderr "  All properties: $properties" ;# DEBUG
+	if $verbose { puts stderr "  All properties: $properties"} ;# DEBUG 
 	foreach prop_iter $properties {
-	    puts stderr "  Property \"$prop_iter\"" ;# DEBUG
+	    if $verbose { puts stderr "  Property \"$prop_iter\"" } ;# DEBUG
 	    set val [project get $prop_iter -process $proc_iter]
-	    puts stderr "  $prop_iter: $val" ;#DEBUG
+	    if $verbose { puts stderr "  $prop_iter: $val" };#DEBUG
 	    lappend prop_list [list $prop_iter ":" $val]
 	}
 	lappend props [list $proc_iter $prop_list]
@@ -48,15 +48,15 @@ proc handleSpecialChars {x} {
 
 ## Just write the internal TCL representation out as a string.  We'll
 ## do any further processing in a more agreeable language.
-proc simple_text_dump {props fileName} {
+proc simple_text_dump {props fileName verbose} {
     set fid [open $fileName w]
     puts $fid $props
     close $fid
-    puts stderr "Dumped properties to file $fileName"
+    if $verbose { puts stderr "Dumped properties to file $fileName" }
 }
 
-proc open_project {fname} {
-    puts stderr "Attempting to open $fname"
+proc open_project {fname verbose} {
+    if $verbose { puts stderr "Attempting to open $fname" }
     if [catch {project open $fname} open_err] {
 	puts stderr "Error while attempting to open '$fname':\n$open_err"
 	exit -1
@@ -65,7 +65,7 @@ proc open_project {fname} {
     if [catch {project get name} iseName] {
 	error $iseName
     }
-    puts stderr "Project opened"
+    if $verbose { puts stderr "Project opened" }
 }
 
 
@@ -74,6 +74,7 @@ proc open_project {fname} {
 set projfile [file normalize [lindex $argv 0]]
 set out_file  [file normalize [lindex $argv 1]]
 
-open_project $projfile
-get_properties properties
-simple_text_dump $properties $out_file
+set verbose 0
+open_project $projfile $verbose
+get_properties properties $verbose
+simple_text_dump $properties $out_file $verbose

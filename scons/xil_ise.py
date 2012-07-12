@@ -41,7 +41,7 @@ def get_project_files(filename, filetype=None, minfiles=0):
 
 
 
-def process_opt_with_defn(key, defns, values):
+def process_opt_with_defn(process, key, defns, values):
 
     """ Use the map of option definitions provided (defns) and map of
     project/user-selected preferences (values) to produces appropriate
@@ -56,7 +56,8 @@ def process_opt_with_defn(key, defns, values):
     value = values[key]
     longname=key
     (flag, proc_fn) = defn
-    args = proc_fn(longname=longname,
+    args = proc_fn(process=process,
+                   longname=longname,
                    flag=flag,
                    value=value)
     return args
@@ -69,59 +70,90 @@ def process_xst_opts(opt_dict):
     set_args = []
     run_args = []
     for k in opt_dict.keys():
-        if k in ISE_RUN_OPTS:
-            #print "RUN %s\t%s\t%s" % (k,ISE_RUN_OPTS[k],opt_dict[k])
-            args = process_opt_with_defn(k, ISE_RUN_OPTS, opt_dict)
+        if k in XST_RUN_OPTS:
+            #print "RUN %s\t%s\t%s" % (k,XST_RUN_OPTS[k],opt_dict[k])
+            args = process_opt_with_defn('xst',k, XST_RUN_OPTS, opt_dict)
             if args != []:
                 run_args.append(args)
             #print k, args
-        elif k in ISE_SET_OPTS:
-            #print "SET %s\t%s\t%s" % (k,ISE_SET_OPTS[k],opt_dict[k])
-            args = process_opt_with_defn(k, ISE_SET_OPTS, opt_dict)
+        elif k in XST_SET_OPTS:
+            #print "SET %s\t%s\t%s" % (k,XST_SET_OPTS[k],opt_dict[k])
+            args = process_opt_with_defn('xst',k, XST_SET_OPTS, opt_dict)
             if args != []:
                 set_args.append(args)
             #print k, args
         else:
-            raise ValueError("Option '%s' in opt_dict has no matching entry in ISE_RUN_OPTS or ISE_SET_OPTS" % (k))
+            raise ValueError("Option '%s' in opt_dict has no matching entry in XST_RUN_OPTS or XST_SET_OPTS" % (k))
     return (set_args, run_args)
+
+def process_ngd_opts(opt_dict):
+
+    """Go through user/project specified option preferences (opt_dict)
+    and build up ngdbuild command-line arguments"""
+    
+    all_args = []
+
+    for k in opt_dict.keys():
+        if k in NGDBUILD_OPTS:
+            #print "RUN %s\t%s\t%s" % (k,NGDBUILD_OPTS[k],opt_dict[k])
+            args = process_opt_with_defn('ngd',k, NGDBUILD_OPTS, opt_dict)
+            if args != []:
+                all_args.append(args)
+            #print k, args
+        else:
+            raise ValueError("Option '%s' in opt_dict has no matching entry in NGDBUILD_OPTS" % (k))
+    return all_args
+
 
 
 ##
 ## Value/Flag formatting functions
 ##
 
+def flag_if_bool(expect=True):
+    """For Boolean values, return the flag iff the value matches 'expect' """
+    def doit(process, longname, flag, value):
+        if type(value) != bool:
+            raise ValueError("flag_if_bool can't handle value '%s' of type '%s'"%(repr(value),type(value)))
+        elif value==expect:
+            return [flag]
+        else:
+            return []
+    return doit
+
+    
 
 ## Primitive _value_ formatting functions: Directly produce a value
 ## from the supplied arguments
 
-def id(longname, flag, value):
+def id(process, longname, flag, value):
 
     """Identity function:  returns value"""
 
     return value
 
-def special_case(longname, flag, value):
+def special_case(process, longname, flag, value):
 
     """Look for an entry ISE_OPT_VAL_MAP[flag][value] and return it"""
     
-    cases = ISE_OPT_VAL_MAP[flag]
+    cases = ISE_OPT_VAL_MAP[process][flag]
     new_val = cases[value]
     return new_val
 
 
-def maybe_special_case(longname, flag, value):
+def maybe_special_case(process, longname, flag, value):
     
     """Look for pre-defined special-case handling of this value, and
     substitute if possibe."""
 
     try:
-        v = special_case(longname, flag, value)
+        v = special_case(process, longname, flag, value)
         return v
     except KeyError:
         # No special-case map for this flag, or no entry in said map for this value
         return str(value)
 
-def bool_yes_no(longname, flag, value):
+def bool_yes_no(process, longname, flag, value):
     """ Phrase Boolean values as 'YES' or 'NO' """
     if value==True:
         return "YES"
@@ -140,18 +172,18 @@ def bool_and_more(extras):
     If 'extras' is a list, any value appearing in the list is used as is.
     If 'extras' is a dictionary, extras[value] is used, if defined."""
     
-    def do_it_l(longname, flag, value):        
+    def do_it_l(process, longname, flag, value):        
         if value in extras:
             return value
         else:
-            return bool_yes_no(longname, flag, value)
+            return bool_yes_no(process, longname, flag, value)
 
-    def do_it_d(longname, flag, value):
+    def do_it_d(process, longname, flag, value):
         try:
             new_val = extras[value]
             return new_val
         except KeyError:
-            return bool_yes_no(longname, flag, value)
+            return bool_yes_no(process, longname, flag, value)
 
     if type(extras) == list:
         return do_it_l
@@ -172,8 +204,8 @@ def normal(fn,drop_none=True):
     is None or 'None'
     """
     
-    def doit(longname, flag, value):
-        new_val = fn(longname, flag, value)
+    def doit(process, longname, flag, value):
+        new_val = fn(process, longname, flag, value)
         if drop_none and (new_val is None or new_val == 'None'):
             return ([])
         else:
@@ -184,8 +216,8 @@ def normal(fn,drop_none=True):
 def must(allowed, fn):
     """ Use 'fn' to compute a value, and then check that it is in the list 'allowed'
     """
-    def do_it(longname, flag, value):
-        new_val = fn(longname, flag, value)
+    def do_it(process, longname, flag, value):
+        new_val = fn(process, longname, flag, value)
         if new_val not in allowed:
             raise ValueError("new_val '%s' is not one of the allowed values ('%s').  Something must be wrong!" % (new_val, allowed))
         return new_val
@@ -201,7 +233,7 @@ def as_list (fn, drop_none=False):
     an output of '{}'.  If True, output will be None.
     """
 
-    def doit(longname, flag, value):
+    def doit(process, longname, flag, value):
         value_parts = []
         if value is None:
             if drop_none:
@@ -209,7 +241,7 @@ def as_list (fn, drop_none=False):
         else:
             value_parts = value.split()
             
-        formatted_value_parts = [fn(longname, flag, p) for p in value_parts]
+        formatted_value_parts = [fn(process, longname, flag, p) for p in value_parts]
         full_string = '{' + ' '.join(formatted_value_parts) + '}'
         return full_string
 
@@ -224,8 +256,8 @@ def simple_quote(fn, openq='"', closeq='"', drop_none=True):
     If drop_none is True, and the returned value is None or 'None',
     returns None."""
     
-    def doit(longname, flag, value):
-        new_val = fn(longname, flag, value)
+    def doit(process, longname, flag, value):
+        new_val = fn(process, longname, flag, value)
         if drop_none and (new_val is None or new_val == 'None'):
             return None
         else:
@@ -241,17 +273,21 @@ simple_string = normal(maybe_special_case)
 simple_bool = normal(bool_yes_no)
 verbatim = normal(id)
  
-ISE_OPT_VAL_MAP={'-glob_opt':           {'Maximum Delay':'Max_Delay'},
-                 '-opt_level':          {'Normal': '1', # I know 'Normal' is what appears in XISE properties, but
-                                         'High'  : '2', # I'm just guessing about 'High'
-                                         'Fast'  : '3'}, # And 'Fast'
-                 '-netlist_hierarchy' : {'As Optimized' : 'as_optimized',
-                                         'Rebuilt'      : 'rebuilt',}, # Another guess
+ISE_OPT_VAL_MAP={'xst' : {'-glob_opt':           {'Maximum Delay':'Max_Delay'},
+                          '-opt_level':          {'Normal': '1', # I know 'Normal' is what appears in XISE properties, but
+                                                  'High'  : '2', # I'm just guessing about 'High'
+                                                  'Fast'  : '3'}, # And 'Fast'
+                          '-netlist_hierarchy' : {'As Optimized' : 'as_optimized',
+                                                  'Rebuilt'      : 'rebuilt',}, # Another guess
+                          },
+                 'ngd' : {'-nt' : {'Timestamp' : 'timestamp',
+                                   'On'        : 'on',
+                                   'Off'       : 'off'}},
                  }
-
+                 
 
 # Definitions for ISE 13.4.  See "XST Commands" in Xilinx UG687, v.13.4
-ISE_RUN_OPTS={'Optimization Goal': ('-opt_mode', simple_string),
+XST_RUN_OPTS={'Optimization Goal': ('-opt_mode', simple_string),
               'Optimization Effort': ('-opt_level', normal(special_case)),
               'Power Reduction': ('-power', simple_bool),
               'Use Synthesis Constraints File': ('-iuc', simple_bool),
@@ -308,6 +344,17 @@ ISE_RUN_OPTS={'Optimization Goal': ('-opt_mode', simple_string),
               'Other XST Command Line Options': (None,verbatim)}
 
 
-ISE_SET_OPTS={None : ('-tmpdir', normal(simple_quote(maybe_special_case))),
+XST_SET_OPTS={None : ('-tmpdir', normal(simple_quote(maybe_special_case))),
               'Work Directory' : ('-xsthdpdir', normal(simple_quote(maybe_special_case))),
               'HDL INI File' : ('-xsthdpini', normal(simple_quote(maybe_special_case)))}
+
+NGDBUILD_OPTS = {'Allow Unexpanded Blocks': ('-u', flag_if_bool(True)),
+                 'Allow Unmatched LOC Constraints': ('-aul', flag_if_bool(True)),
+                 'Allow Unmatched Timing Group Constraints': ('-aut', flag_if_bool(True)),
+                 'Create I/O Pads from Ports': ('-a', flag_if_bool(True)),
+                 'Macro Search Path': ('-sd', simple_string),
+                 'Netlist Translation Type': ('-nt', simple_string),
+                 'Other Ngdbuild Command Line Options': (None, verbatim),
+                 'Use LOC Constraints': ('-r', flag_if_bool(False)),
+                 'User Rules File for Netlister Launcher': ('-ur',normal(simple_quote(id)))}
+                 

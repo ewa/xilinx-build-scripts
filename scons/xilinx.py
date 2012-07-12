@@ -13,6 +13,7 @@ import xml.etree.ElementTree
 from xml.etree.ElementTree import parse
 from xil_ise import get_project_files
 from xil_ise import process_xst_opts
+from xil_ise import process_ngd_opts
 #from xil_ise import get_project_prop
 
 def seq_dedup(seq):
@@ -261,10 +262,6 @@ def generate_xst (source, target, env, for_signature):
     command line stored in FOO.xst).  Expect the following sources
     [0]=.xst file"""
 
-    #sys.stderr.write("generate_xst called (%s,%s,%s)\n"%([str(f) for f in source],[str(f) for f in target],for_signature))
-    #sys.stderr.write(env.subst("FOO = '$FOO'")+"\n")
-    #sys.stderr.flush()
-
     xst_filename = os.path.basename(str(source[0]))
     syr_filename = os.path.splitext(xst_filename)[0]+'.syr'
     cmd_line = 'xst -intstyle {0} -ifn {1} -ofn {2}'
@@ -314,13 +311,41 @@ def generate_chipsope_insert (source, target, env, for_signature):
 
 #2.2 Regular ngdbuild
 def generate_ngdbuild (source, target, env, for_signature):
-    cmd_line ="ngdbuild -intstyle {1} -dd _ngo -sd {0} -nt timestamp -uc {2} -p {3} {4} {5}"
-    cmd_line = cmd_line.format("../../../coregen",
-                               env.subst('$INTSTYLE'),
-                               env.subst('$UCF'),
-                               env.subst('$PARTNUM'),
-                               os.path.basename(str(source[0])), # ngc file
-                               os.path.basename(str(target[0]))) # ngd file
+
+    try:
+        options=env['PROJFILE_PROPS']['Translate']
+        #pprint.pprint(options)
+        opt_args = process_ngd_opts(options)
+        #pprint.pprint(args)
+    except KeyError, e:
+        if not for_signature:
+            sys.stderr.write("Error getting Translate / ngdbuild options: %s\n" % (str(e)))
+            Exit(1)
+        else:
+            sys.stderr.write("generate_ngdbuild called before PROJFILE_PROPS was defined. That's probably OK.\n")
+            opt_args = []
+
+    initial_args = ['ngdbuild',
+                    '-intstyle', env.subst('$INTSTYLE'),
+                    '-sd', '../../coregen', # XXX bad!  Get this path somewhere reasonable!
+                    '-uc', env.subst('$UCF'),
+                    '-p', env.subst('$PARTNUM')]
+                
+    
+    flat_args = [item for sublist in opt_args for item in sublist]
+    
+    args = initial_args + flat_args + [os.path.basename(str(source[0])),
+                                       os.path.basename(str(target[0]))]
+    #pprint.pprint(all_args)
+
+    cmd_line=' '.join(args)
+    # cmd_line ="ngdbuild -intstyle {1} -dd _ngo -sd {0} -nt timestamp -uc {2} -p {3} {4} {5}"
+    # cmd_line = cmd_line.format("../../coregen",
+    #                            env.subst('$INTSTYLE'),
+    #                            env.subst('$UCF'),
+    #                            env.subst('$PARTNUM'),
+    #                            os.path.basename(str(source[0])), # ngc file
+    #                            os.path.basename(str(target[0]))) # ngd file
     return cmd_line
 
 

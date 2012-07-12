@@ -58,10 +58,16 @@ def use_proplist_scanner(node, env, path, arg=None):
     if arg is None:
         sys.stderr.write("use_proplist_scanner needs an arg!\n")
         Exit(1)
-    if arg == 'XST':
+    elif arg == 'XST':
         files=xilinx.expand_node_any((0, 'ROOT_XISE', env.subst('$PROJECTFILE')), '..') # How do we know that ".." is the root?  Just made it up!
         #pprint.pprint(files)
         return files
+    elif arg == 'coregen':
+        return [] #I don't think we need to do anything smarter here -- this was just to get
+    elif arg == 'ngdbuild':
+        return [] #I don't think we need to do anything smarter here -- this was just to get
+    else:
+        raise ValueError("use_proplist_scanner doesn't understand arg '%s'"%(repr(arg)))
     
 
 def generate(env):
@@ -110,6 +116,7 @@ def generate(env):
                         source_scanner=scan_ise.XiseScannerManual())
     env.Append(BUILDERS={'Preconf_prj' : preconf_prj})
 
+
     xst = Builder(generator=xilinx.generate_xst,
                   emitter=chain_emitters([depend_on_proj_file, depend_on_proj_props]),
                   src_builder=foo,
@@ -120,13 +127,23 @@ def generate(env):
 
     coregen = Builder(generator=xilinx.generate_coregen,
                       suffix='.xise',
-                      src_suffix='.xco')
+                      src_suffix='.xco',
+                      target_scanner=Scanner(use_proplist_scanner, argument="coregen"))
     #                      emitter=depend_on_proj_props)
     env.Append(BUILDERS={'Coregen' : coregen})
 
     # Make some scanners
     env.Append(SCANNERS=scan_ise.XiseScannerManual())
     env.Append(SCANNERS=scan_ise.XcoScanner())
+
+    ngd = Builder(generator=xilinx.generate_ngdbuild,
+                  suffix='.ngd',
+                  src_suffix='.ngc',
+                  chdir=True,
+                  target_scanner=Scanner(use_proplist_scanner, argument="ngdbuild"))
+    env.Append(BUILDERS={'Ngd' : ngd})
+
+    
 
     
 def interp_props(target, source, env):

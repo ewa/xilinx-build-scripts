@@ -14,6 +14,7 @@ from xml.etree.ElementTree import parse
 from xil_ise import get_project_files
 from xil_ise import process_xst_opts
 from xil_ise import process_ngd_opts
+from xil_ise import process_map_opts
 #from xil_ise import get_project_prop
 
 def seq_dedup(seq):
@@ -322,10 +323,11 @@ def generate_ngdbuild (source, target, env, for_signature):
             sys.stderr.write("Error getting Translate / ngdbuild options: %s\n" % (str(e)))
             Exit(1)
         else:
-            sys.stderr.write("generate_ngdbuild called before PROJFILE_PROPS was defined. That's probably OK.\n")
+            sys.stderr.write("generate_ngdbuild called before PROJFILE_PROPS was defined. That's OK as long as it gets called again later.\n")
             opt_args = []
 
     initial_args = ['ngdbuild',
+                    '-quiet',
                     '-intstyle', env.subst('$INTSTYLE'),
                     '-sd', '../../coregen', # XXX bad!  Get this path somewhere reasonable!
                     '-uc', env.subst('$UCF'),
@@ -338,14 +340,7 @@ def generate_ngdbuild (source, target, env, for_signature):
                                        os.path.basename(str(target[0]))]
     #pprint.pprint(all_args)
 
-    cmd_line=' '.join(args)
-    # cmd_line ="ngdbuild -intstyle {1} -dd _ngo -sd {0} -nt timestamp -uc {2} -p {3} {4} {5}"
-    # cmd_line = cmd_line.format("../../coregen",
-    #                            env.subst('$INTSTYLE'),
-    #                            env.subst('$UCF'),
-    #                            env.subst('$PARTNUM'),
-    #                            os.path.basename(str(source[0])), # ngc file
-    #                            os.path.basename(str(target[0]))) # ngd file
+    cmd_line=' '.join(args) + ' >/dev/null'
     return cmd_line
 
 
@@ -353,13 +348,34 @@ def generate_ngdbuild (source, target, env, for_signature):
 # Step 3: map
 #
 def generate_map (source, target, env, for_signature):
-    cmd_line="map -intstyle {0} -p {1} -global_opt off -cm area -ir off -pr b -c 100 -o {2} {3} {4}"
-    cmd_line = cmd_line.format(env.subst('$INTSTYLE'),
-                               env.subst('$PARTNUM'),
-                               os.path.basename(str(target[0])), # NCD file
-                               os.path.basename(str(source[0])), # NGD file
-                               os.path.basename(str(target[1]))) # PCF file
-                               
+    try:
+        options=env['PROJFILE_PROPS']['Map']
+        #pprint.pprint(options)
+        opt_args = process_map_opts(options)        
+        #pprint.pprint(opt_args)
+    except KeyError, e:
+        if not for_signature:
+            sys.stderr.write("Error getting Map options: %s\n" % (str(e)))
+            Exit(1)
+        else:
+            sys.stderr.write("generate_map called before PROJFILE_PROPS was defined. That's OK as long as it gets called again later.\n")
+            opt_args = []
+
+
+    initial_args = ['map',
+                    '-intstyle', 'ise', #env.subst('$INTSTYLE'),
+                    '-p', env.subst('$PARTNUM')]
+    
+    flat_args = [item for sublist in opt_args for item in sublist]
+
+    pprint.pprint(flat_args)
+    
+    args = initial_args + flat_args + ['-o', os.path.basename(str(target[0])), # NCD file
+                                       os.path.basename(str(source[0]).rpartition('.ngd')[0]), # NGD file
+                                       #os.path.basename(str(target[1])),  # PCF file
+                                       ]
+    cmd_line=' '.join(args)
+    return cmd_line                               
                                
     return cmd_line
     

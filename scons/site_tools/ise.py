@@ -47,13 +47,13 @@ def announce(words):
     return  doit
 
 def use_proplist_scanner(node, env, path, arg=None):
-    sys.stderr.write("Calling proplist_scanner for %s\n" %(str(node)))
+    #sys.stderr.write("Calling proplist_scanner for %s\n" %(str(node)))
     #sys.stderr.write("arg: %s\n" % (str(arg)))
     try:
         pp = env['PROJFILE_PROPS']
         #sys.stderr.write("PROJFILE_PROPS= %s \n" % (str(pp)))
     except KeyError, e:
-        sys.stderr.write("\tPROJFILE_PROPS not set (yet).  Must revisit!\n")
+        sys.stderr.write("...PROJFILE_PROPS not set (yet).  Must revisit!\n")
         return []
     if arg is None:
         sys.stderr.write("use_proplist_scanner needs an arg!\n")
@@ -69,6 +69,14 @@ def use_proplist_scanner(node, env, path, arg=None):
     else:
         raise ValueError("use_proplist_scanner doesn't understand arg '%s'"%(repr(arg)))
     
+def gimme_edif(target, source, env):
+    edifs = []
+    for s in source:
+        parts = str(s).rpartition('.ngc')
+        if parts[0] != '' and parts[1] != '' and parts[2] == '':
+            #string endswith '.ngc'
+            edifs.append(parts[0]+'.ndf')
+    return (target, source + edifs)
 
 def generate(env):
     ise_exists = env.Detect(['ise'])
@@ -136,14 +144,28 @@ def generate(env):
     env.Append(SCANNERS=scan_ise.XiseScannerManual())
     env.Append(SCANNERS=scan_ise.XcoScanner())
 
+    ## Translate 
     ngd = Builder(generator=xilinx.generate_ngdbuild,
                   suffix='.ngd',
                   src_suffix='.ngc',
                   chdir=True,
+                  emitter=gimme_edif,
                   target_scanner=Scanner(use_proplist_scanner, argument="ngdbuild"))
     env.Append(BUILDERS={'Ngd' : ngd})
 
-    
+    ## Make an EDIF file (we'll use it later)
+    ngc2edif = Builder(action="ngc2edif -intstyle silent -bd asis -w  $SOURCE $TARGET",
+                       suffix=".ndf",
+                       src_suffix=".ngc")
+    env.Append(BUILDERS={'Ngc2Edif' : ngc2edif})
+
+    ## Map
+    map = Builder(generator=xilinx.generate_map,
+                  suffix='.ncd',
+                  src_suffix='.ngd',
+                  chdir=True)
+    env.Append(BUILDERS={'Map' : map})
+
 
     
 def interp_props(target, source, env):

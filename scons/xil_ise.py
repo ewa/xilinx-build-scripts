@@ -2,6 +2,7 @@
 
 import xml.etree.ElementTree
 from xml.etree.ElementTree import parse
+import sys, traceback
 
 
 class XiseMissingFilesError (ValueError):
@@ -90,19 +91,44 @@ def process_ngd_opts(opt_dict):
 
     """Go through user/project specified option preferences (opt_dict)
     and build up ngdbuild command-line arguments"""
+
+    return process_tool_opts('ngd', NGDBUILD_OPTS, opt_dict)
+
+
+def process_map_opts(opt_dict):
+
+    """Go through user/project specified option preferences (opt_dict)
+    and build up ma command-line arguments"""
+
+    return process_tool_opts('map', MAP_OPTS, opt_dict)
+
+def process_tool_opts(process, defn_dict, opt_dict):
+
+    """Go through user/project specified option preferences (opt_dict)
+    and build up command-line arguments."""
     
     all_args = []
 
     for k in opt_dict.keys():
-        if k in NGDBUILD_OPTS:
-            #print "RUN %s\t%s\t%s" % (k,NGDBUILD_OPTS[k],opt_dict[k])
-            args = process_opt_with_defn('ngd',k, NGDBUILD_OPTS, opt_dict)
-            if args != []:
-                all_args.append(args)
+        if k in defn_dict:
+            #print "RUN %s\t%s\t%s" % (k,defn_dict[k],opt_dict[k])
+            try:
+                args = process_opt_with_defn(process,k, defn_dict, opt_dict)
+                if args != []:
+                    all_args.append(args)
+            except Exception, e:                
+                print "Exception in user code.  Process '%s', key '%s'"%(process, k)
+                print '-'*60
+                traceback.print_exc(file=sys.stdout)
+                print '-'*60
+                raise e
+
+                
             #print k, args
         else:
-            raise ValueError("Option '%s' in opt_dict has no matching entry in NGDBUILD_OPTS" % (k))
+            raise ValueError("For process %s, option '%s' in opt_dict has no matching entry in defn_dict" % (process,k))
     return all_args
+
 
 
 
@@ -126,11 +152,20 @@ def flag_if_bool(expect=True):
 ## Primitive _value_ formatting functions: Directly produce a value
 ## from the supplied arguments
 
+def ignore(process, longname, flag, value):
+
+    """ ignore inputs, return None """
+
+    return None
+
+
+
 def id(process, longname, flag, value):
 
     """Identity function:  returns value"""
 
     return value
+
 
 def special_case(process, longname, flag, value):
 
@@ -162,9 +197,21 @@ def bool_yes_no(process, longname, flag, value):
     # Anything else wasn't a bool!
     raise ValueError("Flag value '%s' wasn't boolean." % repr(value))
 
+def bool_on_off(process, longname, flag, value):
+    """ Phrase Boolean values as 'on' or 'off' """
+    if value in [True, 'on', 'On']:
+        return "on"
+    if value in [False, 'off', 'Off']:
+        return "off"
+    # Anything else wasn't a bool!
+    raise ValueError("Flag value '%s' wasn't boolean." % repr(value))
+
+
+## Formatting combinators: Take some primitive formatting function and
+## make a more complicated one
 
 ## Almost primitive:  Takes parameter "extras" and returns a formatting function
-def bool_and_more(extras):
+def bool_and_more(extras, fn):
 
     """ Handle values which must be either boolean or one of a
     pre-defined group of other options (e.g. 'auto').
@@ -176,14 +223,14 @@ def bool_and_more(extras):
         if value in extras:
             return value
         else:
-            return bool_yes_no(process, longname, flag, value)
+            return fn(process, longname, flag, value)
 
     def do_it_d(process, longname, flag, value):
         try:
             new_val = extras[value]
             return new_val
         except KeyError:
-            return bool_yes_no(process, longname, flag, value)
+            return fn(process, longname, flag, value)
 
     if type(extras) == list:
         return do_it_l
@@ -191,9 +238,6 @@ def bool_and_more(extras):
         return do_it_d
     raise ValueError ("'extras' parameter had type %s (value '%s').  Only lists and dictionaries are allowed." % (type(extras), repr(extras)))
 
-
-## Formatting combinators: Take some primitive formatting function and
-## make a more complicated one
 
 def normal(fn,drop_none=True):
 
@@ -211,7 +255,16 @@ def normal(fn,drop_none=True):
         else:
             return ([flag, new_val])
     
+
     return doit
+
+def lowercase(fn):
+    """ Convert result of 'fn' to lower case """
+    def do_it(process, longname, flag, value):
+        new_val = fn(process, longname, flag, value)
+        return str(new_val).lower()
+    return do_it
+
 
 def must(allowed, fn):
     """ Use 'fn' to compute a value, and then check that it is in the list 'allowed'
@@ -219,7 +272,7 @@ def must(allowed, fn):
     def do_it(process, longname, flag, value):
         new_val = fn(process, longname, flag, value)
         if new_val not in allowed:
-            raise ValueError("new_val '%s' is not one of the allowed values ('%s').  Something must be wrong!" % (new_val, allowed))
+            raise ValueError("new_val '%s' is not one of the allowed values ('%s') for %s in %s.  Something must be wrong!" % (new_val, allowed, flag, process))
         return new_val
     return do_it
 
@@ -283,6 +336,12 @@ ISE_OPT_VAL_MAP={'xst' : {'-glob_opt':           {'Maximum Delay':'Max_Delay'},
                  'ngd' : {'-nt' : {'Timestamp' : 'timestamp',
                                    'On'        : 'on',
                                    'Off'       : 'off'}},
+                 'map' : {'-mt' : {'Off' : 'off'},
+                          '-xe' : {'None': 'n',
+                                   'High': 'h'},
+                          '-ir' : {'Yes' : 'off'}, # Prefernce is "use", flag is "ignore", so the semantics are backwards
+                          '-c'  : {False : None},
+                          },                 
                  }
                  
 
@@ -296,7 +355,7 @@ XST_RUN_OPTS={'Optimization Goal': ('-opt_mode', simple_string),
               'Netlist Hierarchy': ('-netlist_hierarchy', normal(special_case)),
               'Global Optimization Goal': ('-glob_opt', simple_string),
               'Generate RTL Schematic': ('-rtlview', normal(must(['yes','Yes','no','No','only','Only'],maybe_special_case))),
-              'Read Cores': ('-read_cores', normal(bool_and_more(extras=['Optimize', 'optimize']))),
+              'Read Cores': ('-read_cores', normal(bool_and_more(['Optimize', 'optimize'], bool_yes_no))),
               'Cores Search Directories': ('-sd', quoted_list),
               'Write Timing Constraints': ('-write_timing_constraints', simple_bool),
               'Cross Clock Analysis': ('-cross_clock_analysis', simple_bool),
@@ -326,7 +385,7 @@ XST_RUN_OPTS={'Optimization Goal': ('-opt_mode', simple_string),
               'Resource Sharing': ('-resource_sharing', simple_bool),
               'Use DSP Block': ('-use_dsp48', simple_string),
               'Asynchronous To Synchronous': ('-async_to_sync', simple_bool),
-              'Add I/O Buffers': ('-iobuf', normal(bool_and_more(extras=['soft','Soft']))),
+              'Add I/O Buffers': ('-iobuf', normal(bool_and_more(['soft','Soft'],bool_yes_no))),
               'Max Fanout': ('-max_fanout', simple_string),
               'Number of Clock Buffers': ('-bufg', simple_string),
               'Register Duplication': ('-register_duplication', simple_bool),
@@ -357,4 +416,30 @@ NGDBUILD_OPTS = {'Allow Unexpanded Blocks': ('-u', flag_if_bool(True)),
                  'Other Ngdbuild Command Line Options': (None, verbatim),
                  'Use LOC Constraints': ('-r', flag_if_bool(False)),
                  'User Rules File for Netlister Launcher': ('-ur',normal(simple_quote(id)))}
-                 
+
+MAP_OPTS = {'Allow Logic Optimization Across Hierarchy': ('-ignore-keep_hierarchy', flag_if_bool(True)),
+            'Combinatorial Logic Optimization': ('-logic_opt', normal(bool_on_off)),
+            'Enable Multi-Threading': ('-mt', normal(must(['off','2'],maybe_special_case))),
+            'Equivalent Register Removal': ('-equivalent_register_removal', normal(bool_on_off)),
+            'Extra Cost Tables': ('-xt', simple_string),
+            'Generate Detailed MAP Report': ('-detail', flag_if_bool(True)),
+            'Global Optimization': ('-global_opt', normal(lowercase(maybe_special_case))),
+            'Ignore User Timing Constraints': ('-x', flag_if_bool(True)),
+            'LUT Combining': ('-lc', normal(must(['off','auto','area'], lowercase(maybe_special_case)))),
+            'Map Slice Logic into Unused Block RAMs': ('-bp', flag_if_bool(True)),
+            'Maximum Compression': ('-c', normal(must(['1','100',None],maybe_special_case))),
+            'Other Map Command Line Options': (None, simple_string),
+            'Pack I/O Registers/Latches into IOBs': ('-pr', normal(must(['off','i','o','b'],lowercase(maybe_special_case)))),
+            'Placer Effort Level': ('-ol', normal(must(['standard', 'high'], lowercase(maybe_special_case)))),
+            'Placer Extra Effort': ('-xe', normal(special_case)),
+            'Power Activity File': ('-activityfile', normal(simple_quote(id))),
+            'Power Reduction': ('-power',normal(bool_and_more(['high','xe'],bool_on_off))),
+            'Register Duplication': ('-register_duplication', normal(bool_on_off)),
+            'Register Ordering': ('-r', normal(must(['4', 'off', '8'], maybe_special_case))),
+            'Starting Placer Cost Table (1-100)': ('-t', simple_string),
+            'Timing Mode': ('-ntd', normal(ignore)),
+            'Trim Unconnected Signals': ('-u', flag_if_bool(True)),
+            'Use RLOC Constraints': ('-ir', normal(must(['all','off','place'],special_case))),
+            }
+
+

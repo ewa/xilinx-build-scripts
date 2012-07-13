@@ -177,7 +177,7 @@ def build_xst (target, source, env):
     prj_filename = os.path.splitext(xst_filename)[0]+'.prj'
     coregen_files= get_project_files(str(source[0]),'FILE_COREGEN', 0)
 
-    coregen_dirs = ['"'+os.path.dirname(f)+'"' for f in coregen_files]
+    coregen_dirs = ['"'+os.path.abspath(os.path.dirname(f))+'"' for f in coregen_files]
     coregen_dirs = seq_dedup(coregen_dirs)
     coregen_dir_fmt = "{"+' '.join(coregen_dirs)+" }"
 
@@ -186,17 +186,22 @@ def build_xst (target, source, env):
     except KeyError, e:
         sys.stderr.write("Error getting synthesis options: %s\n" % (str(e)))
         Exit(1)
-    #pprint.pprint(options)
+    pprint.pprint(options)
+
+    ## XXX HACK!
+    if options['Cores Search Directories'] is None:
+        options['Cores Search Directories'] = ' '.join(coregen_dirs)
+    
     set_args, run_args = process_xst_opts(options)
-    #pprint.pprint(set_args)
-    #pprint.pprint(run_args)
+    pprint.pprint(set_args)
+    pprint.pprint(run_args)
 
     ## Add some task-specific values:
     run_args = [['-ifn' , os.path.basename(prj_filename)],
-                ['-ifmt', 'mixed'],
                 ['-ofn' ,  env.subst('$FILE_STEM')],
                 ['-ofmt', 'NGC'],
                 ['-p'   ,  env.subst('$PARTNUM')],
+                ['-slice_utilization_ratio_maxmargin', '5'],
                 ['-top' , env.subst('$FILE_STEM')]] + run_args
     
     cmd_line=""
@@ -350,9 +355,9 @@ def generate_ngdbuild (source, target, env, for_signature):
 def generate_map (source, target, env, for_signature):
     try:
         options=env['PROJFILE_PROPS']['Map']
-        #pprint.pprint(options)
+        pprint.pprint(options)
         opt_args = process_map_opts(options)        
-        #pprint.pprint(opt_args)
+        pprint.pprint(opt_args)
     except KeyError, e:
         if not for_signature:
             sys.stderr.write("Error getting Map options: %s\n" % (str(e)))
@@ -363,16 +368,18 @@ def generate_map (source, target, env, for_signature):
 
 
     initial_args = ['map',
-                    '-intstyle', 'ise', #env.subst('$INTSTYLE'),
-                    '-p', env.subst('$PARTNUM')]
+                    '-filter', '"/home/andersoe/emulator/src/fpga/SCM/SCM_OPTICAL/iseconfig/filter.filter"',
+                    '-intstyle', 'ise', #env.subst('$INTSTYLE'),                    
+                    '-p', env.subst('$PARTNUM'),
+                    '-w']
     
     flat_args = [item for sublist in opt_args for item in sublist]
 
-    pprint.pprint(flat_args)
+    #pprint.pprint(flat_args)
     
     args = initial_args + flat_args + ['-o', os.path.basename(str(target[0])), # NCD file
-                                       os.path.basename(str(source[0]).rpartition('.ngd')[0]), # NGD file
-                                       #os.path.basename(str(target[1])),  # PCF file
+                                       os.path.basename(str(source[0])), #NGD file
+                                       os.path.basename(str(target[1])),  # PCF file
                                        ]
     cmd_line=' '.join(args)
     return cmd_line                               

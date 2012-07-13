@@ -87,6 +87,49 @@ def process_xst_opts(opt_dict):
             raise ValueError("Option '%s' in opt_dict has no matching entry in XST_RUN_OPTS or XST_SET_OPTS" % (k))
     return (set_args, run_args)
 
+
+##
+
+def is_in(items):
+    def test_in(key):
+        return key in items
+    return test_in
+
+def not_in(items):
+    def test_not_in(key):
+        return key not in items
+    return test_not_in
+
+
+def require_delete(opts, this_key, depend_key, depend_value_func, verbose=False):
+
+    """Remove 'this_key' from 'opts' if 'depend_key' is not in 'pts'.
+    
+    Additionally, if 'depend_values' is not none, remove 'this_key' if
+    'depend_key' takes a value not in that list.  """
+
+    if ((depend_key not in opts) or
+        ((depend_value_func is not None) and
+         (depend_value_func(opts[depend_key]) != True))):
+        try:
+            del opts[this_key]
+            if verbose:
+                sys.stderr.write("Removed option '%s' because '%s' was not present, or failed predicate %s\n"%(this_key, depend_key, depend_value_func))
+        except KeyError:
+            #OK that it wasn't there to begin with
+            pass
+
+
+def global_preprocess_opts(opt_dict):
+    verbose = True
+    
+    opts = opt_dict.copy()
+    require_delete(opts, 'Placer Extra Effort', 'Placer Effort Level', is_in(['High']), verbose)
+    require_delete(opts, 'Equivalent Register Removal', 'Global Optimization', not_in([False, 'Off']), verbose)
+
+    return opts
+    
+
 def process_ngd_opts(opt_dict):
 
     """Go through user/project specified option preferences (opt_dict)
@@ -100,7 +143,16 @@ def process_map_opts(opt_dict):
     """Go through user/project specified option preferences (opt_dict)
     and build up ma command-line arguments"""
 
-    return process_tool_opts('map', MAP_OPTS, opt_dict)
+    try:
+        opts=global_preprocess_opts(opt_dict)
+        return process_tool_opts('map', MAP_OPTS, opts)
+    except Exception, e:                
+        print "Exception processing map options"
+        print '-'*60
+        traceback.print_exc(file=sys.stdout)
+        print '-'*60
+        raise e
+
 
 def process_tool_opts(process, defn_dict, opt_dict):
 
@@ -325,13 +377,28 @@ quoted_list = normal(as_list(simple_quote(maybe_special_case)))
 simple_string = normal(maybe_special_case)
 simple_bool = normal(bool_yes_no)
 verbatim = normal(id)
- 
-ISE_OPT_VAL_MAP={'xst' : {'-glob_opt':           {'Maximum Delay':'Max_Delay'},
-                          '-opt_level':          {'Normal': '1', # I know 'Normal' is what appears in XISE properties, but
+
+## Case-specific voodoo
+def fsm_encoding_rule(process, longname, flag, value):
+
+    """ Any value of 'FSM Encoding Algorithm' implies 'Automatic FSM Extraction'  """
+    
+    if process != 'xst' or longname != 'FSM Encoding Algorithm':
+        raise ValueError('fsm_extract_rule should only be used for process \'xst\', option \'FSM Encoding Algorithm\'')
+
+    return [XST_RUN_OPTS['FSM Extraction'][0], 'YES',
+            flag, maybe_special_case(process, longname, flag, value)]           
+
+## Option definition tables
+    
+ISE_OPT_VAL_MAP={'xst' : {'-glob_opt'          : {'Maximum Delay':'Max_Delay'},
+                          '-opt_level'         : {'Normal': '1', # I know 'Normal' is what appears in XISE properties, but
                                                   'High'  : '2', # I'm just guessing about 'High'
                                                   'Fast'  : '3'}, # And 'Fast'
                           '-netlist_hierarchy' : {'As Optimized' : 'as_optimized',
                                                   'Rebuilt'      : 'rebuilt',}, # Another guess
+                          '-iuc'               : {False : 'YES', # Preference is "use", flag is "ignore"
+                                                  True  : 'NO'},
                           },
                  'ngd' : {'-nt' : {'Timestamp' : 'timestamp',
                                    'On'        : 'on',
@@ -339,7 +406,7 @@ ISE_OPT_VAL_MAP={'xst' : {'-glob_opt':           {'Maximum Delay':'Max_Delay'},
                  'map' : {'-mt' : {'Off' : 'off'},
                           '-xe' : {'None': 'n',
                                    'High': 'h'},
-                          '-ir' : {'Yes' : 'off'}, # Prefernce is "use", flag is "ignore", so the semantics are backwards
+                          '-ir' : {'Yes' : 'off'}, # Preference is "use", flag is "ignore", so the semantics are backwards
                           '-c'  : {False : None},
                           },                 
                  }
@@ -349,14 +416,14 @@ ISE_OPT_VAL_MAP={'xst' : {'-glob_opt':           {'Maximum Delay':'Max_Delay'},
 XST_RUN_OPTS={'Optimization Goal': ('-opt_mode', simple_string),
               'Optimization Effort': ('-opt_level', normal(special_case)),
               'Power Reduction': ('-power', simple_bool),
-              'Use Synthesis Constraints File': ('-iuc', simple_bool),
+              'Use Synthesis Constraints File': ('-iuc', normal(special_case)),
               'Synthesis Constraints File': ('-uc', simple_string),
               'Keep Hierarchy': ('-keep_hierarchy', simple_string),
               'Netlist Hierarchy': ('-netlist_hierarchy', normal(special_case)),
               'Global Optimization Goal': ('-glob_opt', simple_string),
               'Generate RTL Schematic': ('-rtlview', normal(must(['yes','Yes','no','No','only','Only'],maybe_special_case))),
               'Read Cores': ('-read_cores', normal(bool_and_more(['Optimize', 'optimize'], bool_yes_no))),
-              'Cores Search Directories': ('-sd', quoted_list),
+              'Cores Search Directories': ('-sd', normal(as_list(maybe_special_case))),
               'Write Timing Constraints': ('-write_timing_constraints', simple_bool),
               'Cross Clock Analysis': ('-cross_clock_analysis', simple_bool),
               'Hierarchy Separator': ('-hierarchy_separator', simple_string),
@@ -371,7 +438,7 @@ XST_RUN_OPTS={'Optimization Goal': ('-opt_mode', simple_string),
               'Generics, Parameters': ('-generics', normal(as_list(id))),
               'Verilog Macros': ('-define', normal(as_list(id))),
               'FSM Extraction': ('-fsm_extract', simple_string),
-              'FSM Encoding Algorithm': ('-fsm_encoding', simple_string),
+              'FSM Encoding Algorithm': ('-fsm_encoding', fsm_encoding_rule),
               'Safe Implementation': ('-safe_implementation', simple_string),
               'Case Implementation Style': ('-vlgcase', simple_string),
               'FSM Style': ('-fsm_style', simple_string),
